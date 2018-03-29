@@ -2,14 +2,6 @@ import json
 import math
 import random
 
-GAME_WIDTH = 660
-GAME_HEIGHT = 660
-FOOD_RADIUS = 2.5
-FOOD_MASS = 1.0
-EJECTION_RADIUS = 4.0
-EJECTION_MASS = 15.0
-VIRUS_RADIUS = 22.0
-
 
 class Point:
     def __init__(self, x, y):
@@ -50,18 +42,19 @@ class MyBlob(PlayerBlob):
 
 
 class FoodBlob(Blob):
-    def __init__(self, x, y):
-        super().__init__(x, y, r=FOOD_RADIUS, m=FOOD_MASS)
+    def __init__(self, x, y, config):
+        super().__init__(x, y, r=config.FOOD_RADIUS, m=config.FOOD_MASS)
 
 
 class EjectionBlob(FoodBlob):
-    def __init__(self, x, y):
-        super().__init__(x, y, r=EJECTION_RADIUS, m=EJECTION_MASS)
+    def __init__(self, x, y, config):
+        super().__init__(
+            x, y, r=config.EJECTION_RADIUS, m=config.EJECTION_MASS)
 
 
 class VirusBlob(Blob):
-    def __init__(self, id, x, y, m):
-        super().__init__(x, y, r=VIRUS_RADIUS, m=m)
+    def __init__(self, id, x, y, m, config):
+        super().__init__(x, y, r=config.VIRUS_RADIUS, m=m)
         self.id = id
 
 
@@ -83,32 +76,35 @@ class Skip(Command):
 
 
 class Skipper:
-    def __init__(self, interval=100):
+    def __init__(self, config, interval=100):
+        self.config = config
         self.tick = 0
         self.interval = interval
 
     def skip(self, debug=None):
         if self.tick % self.interval == 0:
             self.target = Point(
-                random.randint(1, GAME_WIDTH - 1),
-                random.randint(1, GAME_HEIGHT - 1))
+                random.randint(1, self.config.GAME_WIDTH - 1),
+                random.randint(1, self.config.GAME_HEIGHT - 1))
         self.tick += 1
         return GoTo(self.target, debug)
 
 
-class Strategy:
-    def __init__(self):
-        self.skipper = Skipper()
+class Config:
+    def __init__(self, config):
+        self.GAME_WIDTH = config.get('GAME_WIDTH', 660)
+        self.GAME_HEIGHT = config.get('GAME_HEIGHT', 660)
+        self.FOOD_RADIUS = config.get('FOOD_RADIUS', 2.5)
+        self.FOOD_MASS = config.get('FOOD_MASS', 1.0)
+        self.EJECTION_RADIUS = config.get('EJECTION_RADIUS', 4.0)
+        self.EJECTION_MASS = config.get('EJECTION_MASS', 15.0)
+        self.VIRUS_RADIUS = config.get('VIRUS_RADIUS', 22.0)
 
+
+class Strategy:
     def run(self):
-        self.config = self.read_json()
-        assert self.config.get('GAME_WIDTH') == GAME_WIDTH
-        assert self.config.get('GAME_HEIGHT') == GAME_HEIGHT
-        # Does not work in local runner.
-        #assert self.config.get('FOOD_RADIUS') == FOOD_RADIUS
-        assert self.config.get('FOOD_MASS') == FOOD_MASS
-        assert self.config.get('VIRUS_RADIUS') == VIRUS_RADIUS
-        self.tick = 0
+        self.config = Config(self.read_json())
+        self.skipper = Skipper(self.config)
         while True:
             try:
                 data = self.read_json()
@@ -119,7 +115,6 @@ class Strategy:
             print(
                 json.dumps(
                     dict(X=command.x, Y=command.y, Debug=command.debug)))
-            self.tick += 1
 
     def on_tick(self):
         if not self.my_blobs:
@@ -152,16 +147,19 @@ class Strategy:
         for obj in data.get('Objects', []):
             t = obj.get('T')
             if t == 'F':
-                self.food.append(FoodBlob(obj.get('X'), obj.get('Y')))
+                self.food.append(
+                    FoodBlob(obj.get('X'), obj.get('Y'), self.config))
             elif t == 'E':
-                self.food.append(EjectionBlob(obj.get('X'), obj.get('Y')))
+                self.food.append(
+                    EjectionBlob(obj.get('X'), obj.get('Y'), self.config))
             elif t == 'V':
                 self.viruses.append(
                     VirusBlob(
                         id=obj.get('Id'),
                         x=obj.get('X'),
                         y=obj.get('Y'),
-                        m=obj.get('M')))
+                        m=obj.get('M'),
+                        config=self.config))
             elif t == 'P':
                 self.enemies.append(
                     EnemyBlob(
