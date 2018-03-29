@@ -130,12 +130,12 @@ class Strategy:
                 r=blob.get('R'),
                 m=blob.get('M'),
                 v=Point(blob.get('SX'), blob.get('SY')),
-                ttf=blob.get('TTF')) for blob in data.get('Mine')
+                ttf=blob.get('TTF')) for blob in data.get('Mine', [])
         ]
         self.food = []
         self.viruses = []
         self.enemies = []
-        for obj in data.get('Objects'):
+        for obj in data.get('Objects', []):
             t = obj.get('T')
             if t == 'F':
                 self.food.append(FoodBlob(obj.get('X'), obj.get('Y')))
@@ -148,7 +148,7 @@ class Strategy:
                         x=obj.get('X'),
                         y=obj.get('Y'),
                         m=obj.get('M')))
-            elif t == 'V':
+            elif t == 'P':
                 self.enemies.append(
                     EnemyBlob(
                         id=obj.get('Id'),
