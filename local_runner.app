@@ -1,0 +1,1 @@
+vendor/miniaicups/agario/local_runner_bin/macos/local_runner.app
