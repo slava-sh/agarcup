@@ -1,6 +1,9 @@
 import json
 import math
+import random
 
+GAME_WIDTH = 660
+GAME_HEIGHT = 660
 FOOD_RADIUS = 2.5
 FOOD_MASS = 1.0
 EJECTION_RADIUS = 4.0
@@ -79,23 +82,33 @@ class Skip(Command):
         super().__init__(0, 0, debug)
 
 
-class Strategy:
-    def read_json(self):
-        return json.loads(self.read_line())
+class Skipper:
+    def __init__(self, interval=100):
+        self.tick = 0
+        self.interval = interval
 
-    def read_line(self):
-        line = input()
-        # For testing with local runner output.
-        if line[0] == '"':
-            line = json.loads(line)
-        return line
+    def skip(self, debug=None):
+        if self.tick % self.interval == 0:
+            self.target = Point(
+                random.randint(1, GAME_WIDTH - 1),
+                random.randint(1, GAME_HEIGHT - 1))
+        self.tick += 1
+        return GoTo(self.target, debug)
+
+
+class Strategy:
+    def __init__(self):
+        self.skipper = Skipper()
 
     def run(self):
         self.config = self.read_json()
+        assert self.config.get('GAME_WIDTH') == GAME_WIDTH
+        assert self.config.get('GAME_HEIGHT') == GAME_HEIGHT
         # Does not work in local runner.
         #assert self.config.get('FOOD_RADIUS') == FOOD_RADIUS
         assert self.config.get('FOOD_MASS') == FOOD_MASS
         assert self.config.get('VIRUS_RADIUS') == VIRUS_RADIUS
+        self.tick = 0
         while True:
             try:
                 data = self.read_json()
@@ -106,12 +119,13 @@ class Strategy:
             print(
                 json.dumps(
                     dict(X=command.x, Y=command.y, Debug=command.debug)))
+            self.tick += 1
 
     def on_tick(self):
         if not self.my_blobs:
-            return Skip('Died')
+            return self.skipper.skip('Died')
         if not self.food:
-            return Skip('No food')
+            return self.skipper.skip('No food')
 
         # Find my biggest blob.
         self.my_blobs.sort(key=lambda b: b.m, reverse=True)
@@ -159,11 +173,15 @@ class Strategy:
             else:
                 raise ValueError('unknown object type')
 
-    def find_food(self, objects):
-        for obj in objects:
-            if obj.get('T') == 'F':
-                return obj
-        return None
+    def read_json(self):
+        return json.loads(self.read_line())
+
+    def read_line(self):
+        line = input()
+        # For testing with local runner output.
+        if line[0] == '"':
+            line = json.loads(line)
+        return line
 
 
 if __name__ == '__main__':
