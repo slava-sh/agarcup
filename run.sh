@@ -1,2 +1,3 @@
+#!/bin/bash
 export DEBUG_STRATEGY=1
-python3 src/main.py
+python3 "$(dirname "$0")/src/main.py"
