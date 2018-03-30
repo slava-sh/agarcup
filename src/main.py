@@ -100,15 +100,24 @@ class Virus(Blob):
 
 
 class Command(Point):
-    def __init__(self, x, y, debug=None):
+    def __init__(self, x, y, debug_message=None, debug_lines=None):
         self.x = x
         self.y = y
-        self.debug = debug
+        self.debug_message = debug_message
+        self.debug_lines = debug_lines or []
+
+    def add_debug_message(self, debug_message):
+        self.debug_message = debug_message
+        return self
+
+    def add_debug_line(self, line):
+        self.debug_lines.append(line)
+        return self
 
 
 class GoTo(Command):
-    def __init__(self, point, debug=None):
-        super().__init__(point.x, point.y, debug)
+    def __init__(self, point, debug_message=None):
+        super().__init__(point.x, point.y, debug_message)
 
 
 class Skipper:
@@ -117,13 +126,13 @@ class Skipper:
         self.tick = 0
         self.interval = interval
 
-    def skip(self, debug=None):
+    def skip(self, debug_message=None):
         if self.tick % self.interval == 0:
             self.target = Point(
                 random.randint(1, self.config.GAME_WIDTH - 1),
                 random.randint(1, self.config.GAME_HEIGHT - 1))
         self.tick += 1
-        return GoTo(self.target, debug)
+        return GoTo(self.target, debug_message)
 
 
 class Config:
@@ -144,7 +153,6 @@ class Strategy:
         self.logger = logger
 
     def on_tick(self):
-        return self.skipper.skip()
         if not self.my_blobs:
             return self.skipper.skip('Died')
         if not self.food:
@@ -156,7 +164,11 @@ class Strategy:
 
         # Go to the closest food.
         food = min(self.food, key=lambda b: b.distance_to(me))
-        return GoTo(food, 'EAT')
+        return GoTo(food, 'EAT')\
+                .add_debug_line([me, me + Point(10, 10)])\
+                .add_debug_line([me, me + Point(10, -10)])\
+                .add_debug_line([me, me + Point(-10, 10)])\
+                .add_debug_line([me, me + Point(-10, -10)])
 
     def run(self):
         self.last = None
@@ -172,7 +184,12 @@ class Strategy:
             command = self.on_tick()
             print(
                 json.dumps(
-                    dict(X=command.x, Y=command.y, Debug=command.debug)))
+                    dict(
+                        X=command.x,
+                        Y=command.y,
+                        Debug=command.debug_message,
+                        Draw=dict(Lines=[[dict(X=p.x, Y=p.y) for p in line]
+                                         for line in command.debug_lines]))))
             if self.my_blobs:
                 me = self.my_blobs[0]
                 ep, ev = me.predict_move(command)
@@ -180,14 +197,13 @@ class Strategy:
                 if self.last:
                     (pme, pep, pev) = self.last
                     v = me - pme
-                    good = math.isclose(me.x, pep.x) and math.isclose(me.y, pep.y)
+                    good = math.isclose(me.x, pep.x) and math.isclose(
+                        me.y, pep.y)
                     self.logger.debug(
                         '%5r d(%.3f %.3f) %d me(%.3f %.3f) pep(%.3f %.3f) v(%.3f %.3f) pev(%.3f %.3f) %s %f %f',
-                        good, me.x - pep.x,
-                        me.y - pep.y, len(self.my_blobs), me.x, me.y, pep.x,
-                        pep.y, v.x, v.y, pev.x, pev.y, command.debug, me.m, me.r)
-                    if not good:
-                        raise
+                        good, me.x - pep.x, me.y - pep.y, len(
+                            self.my_blobs), me.x, me.y, pep.x, pep.y, v.x, v.y,
+                        pev.x, pev.y, command.debug_message, me.m, me.r)
                 self.last = cur
 
     def parse_blobs(self, data):
