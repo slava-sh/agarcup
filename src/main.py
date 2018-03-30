@@ -222,14 +222,7 @@ class Strategy:
                 raise ValueError('unknown object type')
 
     def read_json(self):
-        return json.loads(self.read_line())
-
-    def read_line(self):
-        line = input()
-        # For testing with local runner output.
-        if line[0] == '"':
-            line = json.loads(line)
-        return line
+        return json.loads(input())
 
 
 def get_logger():
