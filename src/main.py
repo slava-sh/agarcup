@@ -76,11 +76,10 @@ class Me(Player):
         v = self.v + (n * max_speed - self.v) * (
             self.config.INERTION_FACTOR / self.m)
         v = v.with_length(min(max_speed, v.length()))
-        logging.getLogger('Strategy').debug('v %f %f d %f', v.x, v.y, dist)
         pos = self + v
         pos.x = max(self.r, min(self.config.GAME_WIDTH - self.r, pos.x))
         pos.y = max(self.r, min(self.config.GAME_HEIGHT - self.r, pos.y))
-        return pos
+        return pos, v
 
 
 class Food(Blob):
@@ -145,6 +144,7 @@ class Strategy:
         self.logger = logger
 
     def on_tick(self):
+        return self.skipper.skip()
         if not self.my_blobs:
             return self.skipper.skip('Died')
         if not self.food:
@@ -159,7 +159,7 @@ class Strategy:
         return GoTo(food, 'EAT')
 
     def run(self):
-        self.expected = Point(0, 0)
+        self.last = None
         self.logger.debug('hello')
         self.config = Config(self.read_json())
         self.skipper = Skipper(self.config)
@@ -175,11 +175,20 @@ class Strategy:
                     dict(X=command.x, Y=command.y, Debug=command.debug)))
             if self.my_blobs:
                 me = self.my_blobs[0]
-                self.logger.debug('pos %d %f %f e %f %f %s %f %f',
-                            len(self.my_blobs), me.x, me.y,
-                            me.x - self.expected.x, me.y - self.expected.y,
-                            command.debug, command.x, command.y)
-                self.expected = me.predict_move(command)
+                ep, ev = me.predict_move(command)
+                cur = (me, ep, ev)
+                if self.last:
+                    (pme, pep, pev) = self.last
+                    v = me - pme
+                    good = math.isclose(me.x, pep.x) and math.isclose(me.y, pep.y)
+                    self.logger.debug(
+                        '%5r d(%.3f %.3f) %d me(%.3f %.3f) pep(%.3f %.3f) v(%.3f %.3f) pev(%.3f %.3f) %s %f %f',
+                        good, me.x - pep.x,
+                        me.y - pep.y, len(self.my_blobs), me.x, me.y, pep.x,
+                        pep.y, v.x, v.y, pev.x, pev.y, command.debug, me.m, me.r)
+                    if not good:
+                        raise
+                self.last = cur
 
     def parse_blobs(self, data):
         self.my_blobs = [
