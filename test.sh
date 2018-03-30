@@ -1,1 +1,1 @@
-cat ./game-log-escaped.txt | ./run.sh
+cat ./test-game.txt | ./run.sh
