@@ -3,6 +3,7 @@ import logging
 import math
 import os
 import random
+import numpy as np
 
 
 class Point:
@@ -24,6 +25,9 @@ class Point:
         if self_length == 0:
             return Point(0, 0)
         return self * (length / self_length)
+
+    def unit(self):
+        return self.with_length(1)
 
     def __mul__(self, k):
         return Point(self.x * k, self.y * k)
@@ -148,6 +152,57 @@ class Config:
         self.INERTION_FACTOR = config['INERTION_FACTOR']
 
 
+class Planner:
+    def __init__(self, config, logger, skips=3):
+        self.config = config
+        self.logger = logger
+        self.skips = skips
+        self.paths = []
+        self.vs = [
+            Point(math.cos(angle), math.sin(angle)) * 100
+            for angle in np.linspace(0, math.pi * 2, 4 + 1)[:-1]
+        ]
+
+    def update(self, me):
+        new_paths = [[me]]
+        ends = set()
+        for path in self.paths:
+            if path[0].distance_to(me) > me.r:
+                continue
+            for v in self.vs:
+                new_path = path.copy()
+                new_path.append(
+                    self.predict_moves(new_path[-1], [v] * self.skips))
+                end = (int(new_path[-1].x), int(new_path[-1].y))
+                if end not in ends:
+                    ends.add(end)
+                    new_paths.append(new_path)
+        new_paths.sort(key=lambda p: p[-1].distance_to(me), reverse=True)
+        self.paths = new_paths[:10]
+
+    def predict_moves(self, me, vs):
+        for v in vs:
+            me = self.predict_move(me, v)
+        return me
+
+    def predict_move(self, me, v):
+        max_speed = self.config.SPEED_FACTOR / math.sqrt(me.m)
+        new_v = me.v + (v.unit() * max_speed - me.v) * (
+            self.config.INERTION_FACTOR / me.m)
+        new_v = new_v.with_length(min(max_speed, new_v.length()))
+        new_pos = me + new_v
+        new_pos.x = max(me.r, min(self.config.GAME_WIDTH - me.r, new_pos.x))
+        new_pos.y = max(me.r, min(self.config.GAME_HEIGHT - me.r, new_pos.y))
+        return Me(
+            id=me.id,
+            x=new_pos.x,
+            y=new_pos.y,
+            r=me.r,
+            m=me.m,
+            v=new_v,
+            config=self.config)
+
+
 class Strategy:
     def __init__(self, logger):
         self.logger = logger
@@ -155,26 +210,34 @@ class Strategy:
     def on_tick(self):
         if not self.my_blobs:
             return self.skipper.skip('Died')
-        if not self.food:
-            return self.skipper.skip('No food')
 
         # Find my biggest blob.
         self.my_blobs.sort(key=lambda b: b.m, reverse=True)
         me = self.my_blobs[0]
 
-        # Go to the closest food.
-        food = min(self.food, key=lambda b: b.distance_to(me))
-        return GoTo(food, 'EAT')\
-                .add_debug_line([me, me + Point(10, 10)])\
-                .add_debug_line([me, me + Point(10, -10)])\
-                .add_debug_line([me, me + Point(-10, 10)])\
-                .add_debug_line([me, me + Point(-10, -10)])
+        #if not self.food:
+        #    command = self.skipper.skip('No food')
+        #else:
+        #    # Go to the closest food.
+        #    food = min(self.food, key=lambda b: b.distance_to(me))
+        #    command = GoTo(food, 'EAT')
+
+        self.planner.update(me)
+        v = self.planner.paths[0][-1] - me
+        command = GoTo(me + v * 100)
+        for path in self.planner.paths:
+            command.add_debug_line(path)
+
+        points = sum([len(line) for line in command.debug_lines])
+        command.add_debug_message('{} ({:8.2f} {:8.2f})'.format(points, v.x, v.y))
+        return command
 
     def run(self):
         self.last = None
         self.logger.debug('hello')
         self.config = Config(self.read_json())
         self.skipper = Skipper(self.config)
+        self.planner = Planner(self.config, self.logger)
         while True:
             try:
                 data = self.read_json()
@@ -190,11 +253,13 @@ class Strategy:
                         Debug=command.debug_message,
                         Draw=dict(Lines=[[dict(X=p.x, Y=p.y) for p in line]
                                          for line in command.debug_lines]))))
+
+
             if self.my_blobs:
                 me = self.my_blobs[0]
                 ep, ev = me.predict_move(command)
                 cur = (me, ep, ev)
-                if self.last:
+                if False and self.last:
                     (pme, pep, pev) = self.last
                     v = me - pme
                     good = math.isclose(me.x, pep.x) and math.isclose(
