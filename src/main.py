@@ -5,10 +5,11 @@ import os
 import random
 import numpy as np
 
-NUM_TIPS_TO_LEAVE = 100
+NUM_TIPS_TO_LEAVE = 10
 SKIPPER_INTERVAL = 100
 BIG_V = 100
-NUM_DIRECTIONS = 4
+NUM_DIRECTIONS = 8
+ROOT_EPS = 3
 
 
 class Point:
@@ -75,20 +76,6 @@ class Me(Player):
         self.config = config
         self.v = v
         self.ttf = ttf
-
-    def predict_move(self, target):
-        #if (is_fast) return
-        max_speed = self.config.SPEED_FACTOR / math.sqrt(self.m)
-        d = target - self
-        dist = self.distance_to(target)
-        n = d / dist if dist > 0 else Point(0, 0)
-        v = self.v + (n * max_speed - self.v) * (
-            self.config.INERTION_FACTOR / self.m)
-        v = v.with_length(min(max_speed, v.length()))
-        pos = self + v
-        pos.x = max(self.r, min(self.config.GAME_WIDTH - self.r, pos.x))
-        pos.y = max(self.r, min(self.config.GAME_HEIGHT - self.r, pos.y))
-        return pos, v
 
 
 class Food(Blob):
@@ -158,9 +145,8 @@ class Config:
 
 
 class PathTree:
-    def __init__(self, me, v=None, parent=None, children=None):
+    def __init__(self, me, parent=None, children=None):
         self.me = me
-        self.v = v
         self.parent = parent
         self.children = children or []
 
@@ -173,17 +159,14 @@ class Planner:
             Point(math.cos(angle), math.sin(angle)) * BIG_V
             for angle in np.linspace(0, math.pi * 2, NUM_DIRECTIONS + 1)[:-1]
         ]
-        self.tree = None
+        self.roots = []
 
     def update(self, me):
-        if self.tree is None or self.tree.me.distance_to(me) > me.r:
-            self.tree = PathTree(me)
-        self.expand(self.tree)
+        if not self.roots:
+            self.roots.append(PathTree(me))
+        for root in self.roots:
+            self.expand(root)
         self.trim(me)
-
-        # XXX: This may discard good subtrees.
-        self.tree = min(self.nodes, key=lambda n: n.distance, default=None)
-
         return self.get_best_v()
 
     def expand(self, node):
@@ -193,7 +176,7 @@ class Planner:
         else:
             for v in self.vs:
                 new_me = self.predict_move(node.me, v)
-                node.children.append(PathTree(new_me, v=v, parent=node))
+                node.children.append(PathTree(new_me, parent=node))
 
     def trim(self, me):
         self.nodes = []
@@ -201,34 +184,51 @@ class Planner:
 
         def dfs(node):
             self.nodes.append(node)
-            node.distance = me.distance_to(node.me)
+            node.distance_to_me = me.distance_to(node.me)
             if node.children:
                 for child in node.children:
                     dfs(child)
             else:
                 self.tips.append(node)
 
-        dfs(self.tree)
+        for root in self.roots:
+            dfs(root)
+
         for node in self.nodes:
-            node.should_delete = True
-        self.tips.sort(key=lambda t: t.distance, reverse=True)
-        for tip in self.tips[:NUM_TIPS_TO_LEAVE]:
+            node.should_keep = False
+
+        self.tips.sort(key=lambda t: t.distance_to_me, reverse=True)
+        self.tips = self.tips[:NUM_TIPS_TO_LEAVE]
+        for tip in self.tips:
             node = tip
             while node:
-                node.should_delete = False
+                node.should_keep = True
                 node = node.parent
-        self.nodes = [node for node in self.nodes if not node.should_delete]
+
+        self.nodes = [node for node in self.nodes if node.should_keep]
         for node in self.nodes:
             node.children = [
-                child for child in node.children if not child.should_delete
+                child for child in node.children if child.should_keep
             ]
 
+        self.roots = [
+            node for node in self.nodes if self.node_can_be_root(node)
+        ]
+        for root in self.roots:
+            root.parent = None
+
+    def node_can_be_root(self, node):
+        if node.parent and node.parent.distance_to_me < ROOT_EPS:
+            return False
+        return node.distance_to_me < ROOT_EPS
+
     def get_best_v(self):
-        v = None
         node = self.tips[0]
-        while node.v is not None:
-            v = node.v
+        while True:
+            v = node.me.v
             node = node.parent
+            if node is None or node.parent is None:
+                break
         return v or Point(0, 0)
 
     def predict_moves(self, me, vs):
@@ -242,8 +242,12 @@ class Planner:
             self.config.INERTION_FACTOR / me.m)
         new_v = new_v.with_length(min(max_speed, new_v.length()))
         new_pos = me + new_v
-        new_pos.x = max(me.r, min(self.config.GAME_WIDTH - me.r, new_pos.x))
-        new_pos.y = max(me.r, min(self.config.GAME_HEIGHT - me.r, new_pos.y))
+        SAFETY_MARGIN = 3 * me.r
+        new_pos.x = max(SAFETY_MARGIN,
+                        min(self.config.GAME_WIDTH - SAFETY_MARGIN, new_pos.x))
+        new_pos.y = max(SAFETY_MARGIN,
+                        min(self.config.GAME_HEIGHT - SAFETY_MARGIN,
+                            new_pos.y))
         return Me(
             id=me.id,
             x=new_pos.x,
@@ -289,15 +293,16 @@ class Strategy:
             else:
                 tips += 1
 
-        dfs(self.planner.tree)
+        for root in self.planner.roots:
+            dfs(root)
 
-        command.add_debug_message('tips={} lines={} v=({:.2f} {:.2f})'.format(
-            tips, lines, v.x, v.y))
+        command.add_debug_message(
+            'roots={} tips={} lines={} v=({:.2f} {:.2f})'.format(
+                len(self.planner.roots), tips, lines, v.x, v.y))
 
         return command
 
     def run(self):
-        self.last = None
         self.logger.debug('hello')
         self.config = Config(self.read_json())
         self.skipper = Skipper(self.config)
@@ -320,19 +325,10 @@ class Strategy:
 
             if self.my_blobs:
                 me = self.my_blobs[0]
-                ep, ev = me.predict_move(command)
-                cur = (me, ep, ev)
-                if self.last:
-                    (pme, pep, pev) = self.last
-                    v = me - pme
-                    good = math.isclose(me.x, pep.x) and math.isclose(
-                        me.y, pep.y)
-                    self.logger.debug(
-                        '%5r d(%.3f %.3f) %d me(%.3f %.3f) v(%.3f %.3f) %s cmd(%.3f %.3f) m=%f r=%f',
-                        good, me.x - pep.x, me.y - pep.y, len(self.my_blobs),
-                        me.x, me.y, v.x, v.y, command.debug_message, command.x,
-                        command.y, me.m, me.r)
-                self.last = cur
+                self.logger.debug(
+                    '%d me(%.3f %.3f) m=%f r=%f cmd(%.3f %.3f) %s',
+                    len(self.my_blobs), me.x, me.y, me.m, me.r, command.x,
+                    command.y, command.debug_message)
 
     def parse_blobs(self, data):
         self.my_blobs = [
