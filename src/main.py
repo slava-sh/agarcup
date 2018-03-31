@@ -8,15 +8,14 @@ import collections
 import time
 
 SKIPPER_INTERVAL = 50
-BIG_V = 100
-NUM_DIRECTIONS = 4 * 5
+BIG_SPEED = 1000
+NUM_DIRECTIONS = 4 * 2
 NUM_EXPANSIONS = 30
 ROOT_EPS = 1
-SKIPS = 10
+SKIPS = 5
 SAFETY_MARGIN_FACTOR = 2.5
-SAFETY_MARGIN_PENALTY = -5
+SAFETY_MARGIN_PENALTY = -2
 AVG_TICK_TIME_SECS = 150 / 7500 * SKIPS
-DEBUG_TAIL_SIZE = 50
 
 
 class Point:
@@ -88,6 +87,13 @@ class Player(Blob):
         dist = other.distance_to(Point(x, y))
         return dist < self.vision_radius + other.r
 
+    def can_burst(self):
+        # TODO
+        return True
+
+    def can_hurt(self, other):
+        return self.can_eat(other)
+
 
 class Enemy(Player):
     pass
@@ -114,7 +120,14 @@ class Ejection(Food):
 class Virus(Blob):
     def __init__(self, id, x, y, m, config):
         super().__init__(x, y, r=config.VIRUS_RADIUS, m=m)
+        self.config = config
         self.id = id
+
+    def can_hurt(self, other):
+        if other.r < self.r or not other.can_burst():
+            return False
+        return self.distance_to(
+            other) < self.r * self.config.RAD_HURT_FACTOR + other.r
 
 
 class Command(Point):
@@ -179,6 +192,7 @@ class Config:
         self.VIS_FACTOR = config.get('VIS_FACTOR', 4.0)
         self.VIS_FACTOR_FR = config.get('VIS_FACTOR_FR', 2.5)
         self.VIS_SHIFT = config.get('VIS_SHIFT', 10.0)
+        self.RAD_HURT_FACTOR = config.get('RAD_HURT_FACTOR', 0.66)
 
 
 class PathTree:
@@ -203,9 +217,10 @@ class PathTree:
 
 
 class State:
-    def __init__(self, me, foods):
+    def __init__(self, me, foods, dangers):
         self.me = me
         self.foods = foods
+        self.dangers = dangers
 
 
 class Planner:
@@ -213,17 +228,17 @@ class Planner:
         self.config = config
         self.logger = logger
         self.vs = [
-            Point(math.cos(angle), math.sin(angle)) * BIG_V
+            Point(math.cos(angle), math.sin(angle)) * BIG_SPEED
             for angle in np.linspace(0, math.pi * 2, NUM_DIRECTIONS + 1)[:-1]
         ]
         self.root = None
         self.skipper = Skipper(config)
 
-    def plan(self, me, foods):
+    def plan(self, me, foods, dangers):
         self.skipper.skip()
 
         self.tips = {}
-        self.root = self.new_tip(State(me, foods))
+        self.root = self.new_tip(State(me, foods, dangers))
         for _ in range(NUM_EXPANSIONS):
             node = self.select_node(me)
             if not node:
@@ -287,11 +302,24 @@ class Planner:
 
     def predict_move(self, state, v):
         me = state.me
-        foods = state.foods
+        if me.id is None: # Dead.
+            return state
+
+        for danger in state.dangers:
+            if danger.can_hurt(me):
+                return State(
+                    Me(id=None,
+                       x=me.x,
+                       y=me.y,
+                       r=0,
+                       m=0,
+                       v=Point(0, 0),
+                       vision_radius=0,
+                       config=self.config), [], [])
 
         new_m = me.m
         new_foods = []
-        for food in foods:
+        for food in state.foods:
             if me.can_eat(food):
                 new_m += food.m
             else:
@@ -312,13 +340,12 @@ class Planner:
                m=new_m,
                v=new_v,
                vision_radius=me.vision_radius,
-               config=self.config), new_foods)
+               config=self.config), new_foods, state.dangers)
 
 
 class Strategy:
     def __init__(self, logger):
         self.logger = logger
-        self.tail = collections.deque([], DEBUG_TAIL_SIZE)
         self.tick = None
 
     def on_tick(self):
@@ -346,16 +373,14 @@ class Strategy:
         me = self.my_blobs[0]
 
         foods = self.food + self.enemies
+        dangers = self.viruses + self.enemies
 
-        v, tip = self.planner.plan(me, foods)
+        v, tip = self.planner.plan(me, foods, dangers)
         command = GoTo(me + v)
-
-        self.tail.append(me)
-        command.add_debug_line(self.tail, 'gray')
 
         def dfs(node):
             for child in node.children:
-                command.add_debug_line([node.state.me, child.state.me])
+                command.add_debug_line([node.state.me, child.state.me], 'gray')
                 dfs(child)
         dfs(self.planner.root)
 
@@ -397,15 +422,17 @@ class Strategy:
 
     def parse_blobs(self, data):
         self.my_blobs = [
-            Me(id=blob.get('Id'),
-               x=blob.get('X'),
-               y=blob.get('Y'),
-               r=blob.get('R'),
-               m=blob.get('M'),
-               v=Point(blob.get('SX'), blob.get('SY')),
-               ttf=blob.get('TTF'),
-               vision_radius=blob.get('R') * self.config.VIS_FACTOR, # TODO: Not always true.
-               config=self.config) for blob in data.get('Mine', [])
+            Me(
+                id=blob.get('Id'),
+                x=blob.get('X'),
+                y=blob.get('Y'),
+                r=blob.get('R'),
+                m=blob.get('M'),
+                v=Point(blob.get('SX'), blob.get('SY')),
+                ttf=blob.get('TTF'),
+                vision_radius=blob.get('R') *
+                self.config.VIS_FACTOR,  # TODO: Not always true.
+                config=self.config) for blob in data.get('Mine', [])
         ]
         self.food = []
         self.viruses = []
