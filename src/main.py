@@ -183,7 +183,7 @@ class Planner:
         self.root = None
         self.skipper = Skipper(config)
 
-    def update(self, me):
+    def plan(self, me):
         self.skipper.skip()
 
         if self.root is None or self.root.me.distance_to(me) > ROOT_EPS:
@@ -195,17 +195,23 @@ class Planner:
             self.expand(node)
 
         tip = max(self.tips.values(), key=lambda node: node.score(self.skipper.target))
-        node = tip
-        while node.parent is not self.root:
-            node = node.parent
-        return node, tip
+        self.next_root = self.get_next_root(tip)
+        return self.next_root.v, tip
 
-    def advance(self, next_root):
+    def advance(self):
+        next_root = self.next_root
+        self.next_root = None
         not_roots = [child for child in self.root.children if child is not next_root]
         for node in self.discover_nodes(not_roots):
             self.remove_tip(node)
         next_root.parent = None
         self.root = next_root
+
+    def get_next_root(self, tip):
+        node = tip
+        while node.parent is not self.root:
+            node = node.parent
+        return node
 
     def select_node(self, me):
         score = lambda node: node.score(self.skipper.target)
@@ -287,16 +293,8 @@ class Strategy:
         self.my_blobs.sort(key=lambda b: b.m, reverse=True)
         me = self.my_blobs[0]
 
-        node, tip = self.planner.update(me)
-        v = node.v
+        v, tip = self.planner.plan(me)
         command = GoTo(me + v)
-        root = self.planner.root
-
-        self.logger.debug('me     %r', me)
-        self.logger.debug('root   %r', root.me)
-        self.logger.debug('node   %r', node.me)
-        self.logger.debug('v      %r', node.v)
-        self.logger.debug('root.v %r', root.v)
 
         self.tail.append(me)
         command.add_debug_line(self.tail, 'gray')
@@ -326,7 +324,7 @@ class Strategy:
         t = tip.me
         command.add_debug_circle(Circle(t.x, t.y, 2), 'red')
 
-        self.planner.advance(node)
+        self.planner.advance()
         return command
 
     def run(self):
