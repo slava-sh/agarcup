@@ -9,8 +9,9 @@ import collections
 SKIPPER_INTERVAL = 50
 BIG_V = 100
 NUM_DIRECTIONS = 4 * 5
-NUM_EXPANSIONS = 2
+NUM_EXPANSIONS = 10
 ROOT_EPS = 1
+SKIPS = 10
 
 
 class Point:
@@ -65,9 +66,22 @@ class Blob(Circle):
 
 
 class Player(Blob):
-    def __init__(self, id, x, y, r, m):
+    def __init__(self, id, x, y, r, m, vision_radius, config):
         super().__init__(x, y, r, m)
+        self.config = config
         self.id = id
+        self.vision_radius = vision_radius
+
+    def can_eat(self, other):
+        return self.m > other.m * self.config.MASS_EAT_FACTOR and self.distance_to(
+            other) < self.r - other.r * self.config.RAD_EAT_FACTOR
+
+    def can_see(self, other):
+        angle = self.v.angle()
+        x = self.x + math.cos(angle) * self.config.VIS_SHIFT
+        y = self.y + math.sin(angle) * self.config.VIS_SHIFT
+        dist = other.distance_to(Point(x, y))
+        return dist < self.vision_radius + other.r
 
 
 class Enemy(Player):
@@ -75,9 +89,8 @@ class Enemy(Player):
 
 
 class Me(Player):
-    def __init__(self, id, x, y, r, m, v, config, ttf=None):
-        super().__init__(id, x, y, r, m)
-        self.config = config
+    def __init__(self, id, x, y, r, m, v, vision_radius, config, ttf=None):
+        super().__init__(id, x, y, r, m, vision_radius, config)
         self.v = v
         self.ttf = ttf
 
@@ -156,20 +169,30 @@ class Config:
         self.VIRUS_RADIUS = config['VIRUS_RADIUS']
         self.SPEED_FACTOR = config['SPEED_FACTOR']
         self.INERTION_FACTOR = config['INERTION_FACTOR']
+        self.MASS_EAT_FACTOR = config.get('MASS_EAT_FACTOR', 1.2)
+        self.RAD_EAT_FACTOR = config.get('RAD_EAT_FACTOR', 0.66)
+        self.VIS_FACTOR = config.get('VIS_FACTOR', 4.0)
+        self.VIS_FACTOR_FR = config.get('VIS_FACTOR_FR', 2.5)
+        self.VIS_SHIFT = config.get('VIS_SHIFT', 10.0)
 
 
 class PathTree:
-    def __init__(self, me, v=None, parent=None, children=None):
-        self.me = me
+    def __init__(self, state, v=None, parent=None, children=None):
+        self.state = state
         self.v = v
         self.parent = parent
         self.children = children or []
-
-    def score(self, target):
-        return -self.me.distance_to(target)
+        self.visits = 0
+        self.score = state.me.m + state.me.v.length()
 
     def __repr__(self):
-        return '{}{!r}'.format(id(self), self.me)
+        return '{}{!r}'.format(id(self), self.state.me)
+
+
+class State:
+    def __init__(self, me, foods):
+        self.me = me
+        self.foods = foods
 
 
 class Planner:
@@ -183,29 +206,20 @@ class Planner:
         self.root = None
         self.skipper = Skipper(config)
 
-    def plan(self, me):
+    def plan(self, me, foods):
         self.skipper.skip()
 
-        if self.root is None or self.root.me.distance_to(me) > ROOT_EPS:
-            self.tips = {}
-            self.root = self.new_tip(me)
-
+        self.tips = {}
+        self.root = self.new_tip(State(me, foods))
         for _ in range(NUM_EXPANSIONS):
             node = self.select_node(me)
+            if not node:
+                break
             self.expand(node)
 
-        tip = max(self.tips.values(), key=lambda node: node.score(self.skipper.target))
-        self.next_root = self.get_next_root(tip)
-        return self.next_root.v, tip
-
-    def advance(self):
-        next_root = self.next_root
-        self.next_root = None
-        not_roots = [child for child in self.root.children if child is not next_root]
-        for node in self.discover_nodes(not_roots):
-            self.remove_tip(node)
-        next_root.parent = None
-        self.root = next_root
+        tip = max(self.tips.values(), key=lambda node: node.score)
+        next_root = self.get_next_root(tip)
+        return next_root.v, tip
 
     def get_next_root(self, tip):
         node = tip
@@ -214,8 +228,11 @@ class Planner:
         return node
 
     def select_node(self, me):
-        score = lambda node: node.score(self.skipper.target)
-        return max(self.tips.values(), key=score)
+        score = lambda node: node.score
+        return max(
+            (tip for tip in self.tips.values() if me.can_see(tip.state.me)),
+            key=score,
+            default=None)
 
     def discover_nodes(self, roots):
         def go(node, nodes):
@@ -243,23 +260,33 @@ class Planner:
         if node.children:
             raise ValueError('node already expanded')
         node.children = [
-            self.new_tip(self.predict_move(node.me, v), v=v, parent=node)
+            self.new_tip(
+                self.predict_moves(node.state, [v] * SKIPS), v=v, parent=node)
             for v in self.vs
         ]
         self.remove_tip(node)
         return node.children
 
-    def get_v(self, node):
-        v = None
-        while node is not None and node.v is not None:
-            v = node.v
-            node = node.parent
-        return v
+    def predict_moves(self, state, vs):
+        for v in vs:
+            state = self.predict_move(state, v)
+        return state
 
-    def predict_move(self, me, v):
-        max_speed = self.config.SPEED_FACTOR / math.sqrt(me.m)
+    def predict_move(self, state, v):
+        me = state.me
+        foods = state.foods
+
+        new_m = me.m
+        new_foods = []
+        for food in foods:
+            if me.can_eat(food):
+                new_m += food.m
+            else:
+                new_foods.append(food)
+
+        max_speed = self.config.SPEED_FACTOR / math.sqrt(new_m)
         new_v = me.v + (v.unit() * max_speed - me.v) * (
-            self.config.INERTION_FACTOR / me.m)
+            self.config.INERTION_FACTOR / new_m)
         new_v = new_v.with_length(min(max_speed, new_v.length()))
         new_pos = me + new_v
         SAFETY_MARGIN = me.r
@@ -268,14 +295,15 @@ class Planner:
         new_pos.y = max(SAFETY_MARGIN,
                         min(self.config.GAME_HEIGHT - SAFETY_MARGIN,
                             new_pos.y))
-        return Me(
-            id=me.id,
-            x=new_pos.x,
-            y=new_pos.y,
-            r=me.r,
-            m=me.m,
-            v=new_v,
-            config=self.config)
+        return State(
+            Me(id=me.id,
+               x=new_pos.x,
+               y=new_pos.y,
+               r=me.r,
+               m=new_m,
+               v=new_v,
+               vision_radius=me.vision_radius,
+               config=self.config), new_foods)
 
 
 class Strategy:
@@ -285,15 +313,13 @@ class Strategy:
         self.tail = collections.deque([], TAIL_SIZE)
 
     def on_tick(self):
-        if not self.my_blobs:
-            assert False
-            return GoTo(0, 0, 'DEAD')
-
         # Find my biggest blob.
         self.my_blobs.sort(key=lambda b: b.m, reverse=True)
         me = self.my_blobs[0]
 
-        v, tip = self.planner.plan(me)
+        foods = self.food + self.enemies
+
+        v, tip = self.planner.plan(me, foods)
         command = GoTo(me + v)
 
         self.tail.append(me)
@@ -302,29 +328,29 @@ class Strategy:
         tips = 0
         nodes = 0
         lines = 0
+
         def dfs(node):
             nonlocal tips, lines, nodes
             nodes += 1
             if node.children:
                 for child in node.children:
-                    command.add_debug_line([node.me, child.me])
+                    command.add_debug_line([node.state.me, child.state.me])
                     lines += 1
                     dfs(child)
             else:
                 tips += 1
+
         dfs(self.planner.root)
         command.add_debug_message(
             'n={} t={} nt={} lines={} v=({:.2f} {:.2f})'.format(
-                nodes, tips, len(self.planner.tips),
-                lines, v.x, v.y))
+                nodes, tips, len(self.planner.tips), lines, v.x, v.y))
 
         t = self.planner.skipper.target
         command.add_debug_circle(Circle(t.x, t.y, 4), 'red')
 
-        t = tip.me
+        t = tip.state.me
         command.add_debug_circle(Circle(t.x, t.y, 2), 'red')
 
-        self.planner.advance()
         return command
 
     def run(self):
@@ -372,6 +398,7 @@ class Strategy:
                m=blob.get('M'),
                v=Point(blob.get('SX'), blob.get('SY')),
                ttf=blob.get('TTF'),
+               vision_radius=blob.get('R') * self.config.VIS_FACTOR, # TODO: Not always true.
                config=self.config) for blob in data.get('Mine', [])
         ]
         self.food = []
@@ -393,13 +420,17 @@ class Strategy:
                         m=obj.get('M'),
                         config=self.config))
             elif t == 'P':
+                # TODO: Not always true.
+                vision_radius = obj.get('R') * self.config.VIS_FACTOR
                 self.enemies.append(
                     Enemy(
                         id=obj.get('Id'),
                         x=obj.get('X'),
                         y=obj.get('Y'),
                         m=obj.get('M'),
-                        r=obj.get('R')))
+                        r=obj.get('R'),
+                        vision_radius=vision_radius,
+                        config=self.config))
             else:
                 raise ValueError('unknown object type')
 
