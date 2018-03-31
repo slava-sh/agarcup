@@ -165,9 +165,7 @@ class PathTree:
         self.children = children or []
 
     def __repr__(self):
-        me = self.me
-        return 'Node(me=({:.2f}, {:.2f}) v=({:.2f}, {:.2f}) children={})'.format(
-            me.x, me.y, me.v.x, me.v.y, repr(self.children))
+        return '{}{!r}'.format(id(self), self.me)
 
 
 class Planner:
@@ -183,61 +181,77 @@ class Planner:
 
     def update(self, me):
         self.skipper.skip()
-        self.roots = []
-        if not self.roots:
-            self.roots.append(PathTree(me))
-        self.nodes = self.roots.copy()
-        NUM_EXPANSIONS = 50
+        self.update_roots(me)
+
+        NUM_EXPANSIONS = 1
+        nodes = self.discover_nodes(self.roots)
+        for node in nodes:
+            self.logger.debug('nodes  : %r', node)
         for _ in range(NUM_EXPANSIONS):
-            self.expand(self.find_best_node())
-        return self.get_v(self.find_best_node())
+            self.expand(self.find_best_node(nodes))
 
-    def find_best_node(self):
-        self.nodes.sort(key=lambda node: (len(node.children), node.me.distance_to(self.skipper.target)))
-        return self.nodes[0]
-
-    def expand(self, node):
-        node.children = [
-            PathTree(self.predict_move(node.me, v), v=v, parent=node)
-            for v in self.vs
-        ]
-        self.nodes.extend(node.children)
-
-    def update_nodes(self):
-        self.nodes = []
-
-        def dfs(node):
-            self.nodes.append(node)
-            for child in node.children:
-                dfs(child)
-
-        for root in self.roots:
-            dfs(root)
-
-        self.nodes.sort(key=lambda node: node.me.distance_to(self.skipper.target))
+        nodes = self.discover_nodes(self.roots)
+        return self.get_v(self.find_best_node(nodes))
 
     def update_roots(self, me):
-        self.roots = [
-            node for node in self.nodes if self.node_can_be_root(node, me)
-        ]
+        self.logger.debug('me     : %r', me)
+
+        self.logger.debug('roots b: %d', len(self.roots))
+        for r in self.roots:
+            self.logger.debug('roots  : %r', r)
 
         new_roots = []
-        ps = set()
         for root in self.roots:
-            p = (int(root.me.x), int(root.me.y))
-            if p not in ps:
-                ps.add(p)
+            better_roots = [child for child in root.children if child.me.distance_to(me) < root.me.distance_to(me)]
+            if better_roots:
+                new_roots.extend(better_roots)
+            else:
                 new_roots.append(root)
-        self.roots = new_roots
+        self.roots = [root for root in new_roots if root.me.distance_to(me) < ROOT_EPS]
+        if not self.roots:
+            self.roots.append(PathTree(me))
 
         for root in self.roots:
+            if root.parent:
+                self.logger.debug('new root: %r %f %f %r',
+                        root,
+                        root.me.distance_to(me),
+                        root.parent.me.distance_to(me),
+                        root.me.distance_to(me) < root.parent.me.distance_to(me))
             root.parent = None
+        self.logger.debug('roots a: %d', len(self.roots))
+        for r in self.roots:
+            self.logger.debug('roots  : %r', r)
+
+    def discover_nodes(self, roots):
+        def go(node, nodes):
+            nodes.append(node)
+            for child in node.children:
+                go(child, nodes)
+
+        nodes = []
+        for root in roots:
+            go(root, nodes)
+        return nodes
 
     def node_can_be_root(self, node, me):
         if node.me.distance_to(me) > ROOT_EPS:
             return False
         return node.parent is None or node.me.distance_to(
             me) < node.parent.me.distance_to(me)
+
+    def find_best_node(self, nodes):
+        nodes.sort(key=lambda node: (len(node.children), node.me.distance_to(self.skipper.target)))
+        return nodes[0]
+
+    def expand(self, node):
+        if node.children:
+            assert False, 'node already expanded'
+            return
+        node.children = [
+            PathTree(self.predict_move(node.me, v), v=v, parent=node)
+            for v in self.vs
+        ]
 
     def get_v(self, node):
         v = None
@@ -308,15 +322,15 @@ class Strategy:
         for root in self.planner.roots:
             dfs(root)
         command.add_debug_message(
-            'roots={} nodes={} n={} t={} lines={} v=({:.2f} {:.2f})'.
-            format(
-                len(self.planner.roots), len(self.planner.nodes),
-                nodes, tips, lines, v.x, v.y))
+            'roots={} n={} t={} lines={} v=({:.2f} {:.2f})'.format(
+                len(self.planner.roots), nodes, tips,
+                lines, v.x, v.y))
 
         t = self.planner.skipper.target
         command.add_debug_circle(Circle(t.x, t.y, 4), 'red')
 
-        t = self.planner.nodes[0].me
+        nodes = self.planner.discover_nodes(self.planner.roots)
+        t = self.planner.find_best_node(nodes).me
         command.add_debug_circle(Circle(t.x, t.y, 2), 'green')
 
         return command
@@ -339,9 +353,12 @@ class Strategy:
                         Y=command.y,
                         Debug=command.debug_message,
                         Draw=dict(
-                            Lines=[dict(P=[dict(X=p.x, Y=p.y) for p in points],
-                                        C=color)
-                                   for points, color in command.debug_lines],
+                            Lines=[
+                                dict(
+                                    P=[dict(X=p.x, Y=p.y) for p in points],
+                                    C=color)
+                                for points, color in command.debug_lines
+                            ],
                             Circles=[
                                 dict(X=c.x, Y=c.y, R=c.r, C=color)
                                 for c, color in command.debug_circles
