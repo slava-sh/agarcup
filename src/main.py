@@ -5,15 +5,18 @@ import os
 import random
 import numpy as np
 import collections
+import time
 
 SKIPPER_INTERVAL = 50
 BIG_V = 100
 NUM_DIRECTIONS = 4 * 5
-NUM_EXPANSIONS = 10
+NUM_EXPANSIONS = 30
 ROOT_EPS = 1
 SKIPS = 10
 SAFETY_MARGIN_FACTOR = 2.5
 SAFETY_MARGIN_PENALTY = -5
+AVG_TICK_TIME_SECS = 150 / 7500 * SKIPS
+DEBUG_TAIL_SIZE = 50
 
 
 class Point:
@@ -315,10 +318,29 @@ class Planner:
 class Strategy:
     def __init__(self, logger):
         self.logger = logger
-        TAIL_SIZE = 50
-        self.tail = collections.deque([], TAIL_SIZE)
+        self.tail = collections.deque([], DEBUG_TAIL_SIZE)
+        self.tick = None
 
     def on_tick(self):
+        start = time.time()
+
+        if self.tick is None:
+            self.tick = 0
+        else:
+            self.tick += 1
+
+        if self.tick % SKIPS == 0:
+            command = self.get_command()
+            self.last_command = command
+        else:
+            command = self.last_command
+
+        elapsed = time.time() - start
+        if elapsed > AVG_TICK_TIME_SECS:
+            command.add_debug_message('SLOW: {:.2f}s'.format(elapsed))
+        return command
+
+    def get_command(self):
         # Find my biggest blob.
         self.my_blobs.sort(key=lambda b: b.m, reverse=True)
         me = self.my_blobs[0]
@@ -331,28 +353,13 @@ class Strategy:
         self.tail.append(me)
         command.add_debug_line(self.tail, 'gray')
 
-        tips = 0
-        nodes = 0
-        lines = 0
-
         def dfs(node):
-            nonlocal tips, lines, nodes
-            nodes += 1
-            if node.children:
-                for child in node.children:
-                    command.add_debug_line([node.state.me, child.state.me])
-                    lines += 1
-                    dfs(child)
-            else:
-                tips += 1
-
+            for child in node.children:
+                command.add_debug_line([node.state.me, child.state.me])
+                dfs(child)
         dfs(self.planner.root)
-        command.add_debug_message(
-            'n={} t={} nt={} lines={} v=({:.2f} {:.2f})'.format(
-                nodes, tips, len(self.planner.tips), lines, v.x, v.y))
 
-        t = self.planner.skipper.target
-        command.add_debug_circle(Circle(t.x, t.y, 4), 'red')
+        command.add_debug_message('t={}'.format(len(self.planner.tips)))
 
         t = tip.state.me
         command.add_debug_circle(Circle(t.x, t.y, 2), 'red')
@@ -387,13 +394,6 @@ class Strategy:
                                 dict(X=c.x, Y=c.y, R=c.r, C=color)
                                 for c, color in command.debug_circles
                             ]))))
-
-            if self.my_blobs:
-                me = self.my_blobs[0]
-                self.logger.debug(
-                    '%d me(%.3f %.3f) m=%f r=%f cmd(%.3f %.3f) %s',
-                    len(self.my_blobs), me.x, me.y, me.m, me.r, command.x,
-                    command.y, command.debug_message)
 
     def parse_blobs(self, data):
         self.my_blobs = [
