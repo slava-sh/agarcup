@@ -5,6 +5,11 @@ import os
 import random
 import numpy as np
 
+NUM_TIPS_TO_LEAVE = 100
+SKIPPER_INTERVAL = 100
+BIG_V = 100
+NUM_DIRECTIONS = 4
+
 
 class Point:
     def __init__(self, x, y):
@@ -125,7 +130,7 @@ class GoTo(Command):
 
 
 class Skipper:
-    def __init__(self, config, interval=100):
+    def __init__(self, config, interval=SKIPPER_INTERVAL):
         self.config = config
         self.tick = 0
         self.interval = interval
@@ -161,13 +166,12 @@ class PathTree:
 
 
 class Planner:
-    def __init__(self, config, logger, skips=3):
+    def __init__(self, config, logger):
         self.config = config
         self.logger = logger
-        self.skips = skips
         self.vs = [
-            Point(math.cos(angle), math.sin(angle)) * 100
-            for angle in np.linspace(0, math.pi * 2, 4 + 1)[:-1]
+            Point(math.cos(angle), math.sin(angle)) * BIG_V
+            for angle in np.linspace(0, math.pi * 2, NUM_DIRECTIONS + 1)[:-1]
         ]
         self.tree = None
 
@@ -176,6 +180,10 @@ class Planner:
             self.tree = PathTree(me)
         self.expand(self.tree)
         self.trim(me)
+
+        # XXX: This may discard good subtrees.
+        self.tree = min(self.nodes, key=lambda n: n.distance, default=None)
+
         return self.get_best_v()
 
     def expand(self, node):
@@ -188,37 +196,37 @@ class Planner:
                 node.children.append(PathTree(new_me, v=v, parent=node))
 
     def trim(self, me):
-        nodes = []
+        self.nodes = []
         self.tips = []
 
         def dfs(node):
-            nodes.append(node)
-            for child in node.children:
-                dfs(child)
+            self.nodes.append(node)
+            node.distance = me.distance_to(node.me)
+            if node.children:
+                for child in node.children:
+                    dfs(child)
             else:
                 self.tips.append(node)
 
         dfs(self.tree)
-        for node in nodes:
+        for node in self.nodes:
             node.should_delete = True
-        self.tips.sort(key=lambda t: self.tip_score(t, me), reverse=True)
-        for tip in self.tips[:50]:
+        self.tips.sort(key=lambda t: t.distance, reverse=True)
+        for tip in self.tips[:NUM_TIPS_TO_LEAVE]:
             node = tip
             while node:
                 node.should_delete = False
                 node = node.parent
-        for node in nodes:
-            if not node.should_delete:
-                node.children = [
-                    child for child in node.children if not child.should_delete
-                ]
-
-    def tip_score(self, tip, me):
-        return me.distance_to(tip.me)
+        self.nodes = [node for node in self.nodes if not node.should_delete]
+        for node in self.nodes:
+            node.children = [
+                child for child in node.children if not child.should_delete
+            ]
 
     def get_best_v(self):
+        v = None
         node = self.tips[0]
-        while node:
+        while node.v is not None:
             v = node.v
             node = node.parent
         return v or Point(0, 0)
@@ -267,18 +275,17 @@ class Strategy:
 
         v = self.planner.update(me)
         command = GoTo(me + v)
-        command.x = 200
-        command.y = 200
 
         tips = 0
         lines = 0
 
-        def dfs(tree):
+        def dfs(node):
             nonlocal tips, lines
-            for child in tree.children:
-                command.add_debug_line([tree.me, child.me])
-                lines += 1
-                dfs(child)
+            if node.children:
+                for child in node.children:
+                    command.add_debug_line([node.me, child.me])
+                    lines += 1
+                    dfs(child)
             else:
                 tips += 1
 
