@@ -9,8 +9,7 @@ import collections
 SKIPPER_INTERVAL = 50
 BIG_V = 100
 NUM_DIRECTIONS = 4 * 5
-ROOT_EPS = 3
-NUM_EXPANSIONS = 2
+NUM_EXPANSIONS = 10
 
 
 class Point:
@@ -181,57 +180,28 @@ class Planner:
             for angle in np.linspace(0, math.pi * 2, NUM_DIRECTIONS + 1)[:-1]
         ]
         self.roots = []
-        self.tips = {}
         self.skipper = Skipper(config)
 
     def update(self, me):
         self.skipper.skip()
-        self.update_roots(me)
+
+        self.tips = {}
+        root = self.new_tip(me)
+        self.roots = [root]
 
         for _ in range(NUM_EXPANSIONS):
             node = self.select_node(me)
             self.expand(node)
+
         tip = max(self.tips.values(), key=lambda node: node.score(self.skipper.target))
-        return self.get_v(tip), tip
+        node = tip
+        while node.parent is not root:
+            node = node.parent
+        return root, node, tip
 
     def select_node(self, me):
         score = lambda node: node.score(self.skipper.target)
         return max(self.tips.values(), key=score)
-        node = max(self.roots, key=score)
-        while node.children:
-            node = max(node.children, key=score)
-        return node
-
-    def update_roots(self, me):
-        new_roots = []
-        for root in self.roots:
-            better_roots = []
-            not_roots = []
-            for child in root.children:
-                if child.me.distance_to(me) < root.me.distance_to(me):
-                    child.parent = None
-                    better_roots.append(child)
-                else:
-                    not_roots.append(child)
-            if better_roots:
-                new_roots.extend(better_roots)
-                for node in self.discover_nodes(not_roots):
-                    self.remove_tip(node)
-            else:
-                new_roots.append(root)
-
-        self.roots = []
-        not_roots = []
-        for root in new_roots:
-            if root.me.distance_to(me) < ROOT_EPS:
-                self.roots.append(root)
-            else:
-                not_roots.append(root)
-        for node in self.discover_nodes(not_roots):
-            self.remove_tip(node)
-
-        if not self.roots:
-            self.roots.append(self.new_tip(me))
 
     def discover_nodes(self, roots):
         def go(node, nodes):
@@ -309,9 +279,15 @@ class Strategy:
         self.my_blobs.sort(key=lambda b: b.m, reverse=True)
         me = self.my_blobs[0]
 
-        v, tip = self.planner.update(me)
-        v = v or Point(0, 0)
+        root, node, tip = self.planner.update(me)
+        v = node.v
         command = GoTo(me + v)
+
+        self.logger.debug('me     %r', me)
+        self.logger.debug('root   %r', root.me)
+        self.logger.debug('node   %r', node.me)
+        self.logger.debug('v      %r', node.v)
+        self.logger.debug('root.v %r', root.v)
 
         #for root in self.planner.roots:
         #    self.logger.debug('%s', repr(root))
