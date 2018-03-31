@@ -19,6 +19,7 @@ MIN_SKIPS_MASS = 40
 MAX_SKIPS = 50
 MAX_SKIPS_MASS = 500
 DANGER_PENALTY = -1000
+SPEED_BONUS = 1
 
 
 class Point:
@@ -145,17 +146,20 @@ class Command(Point):
         self.debug_message = debug_message
         self.debug_lines = debug_lines or []
         self.debug_circles = debug_circles or []
+        self.debug = bool(os.getenv('DEBUG_STRATEGY'))
 
     def add_debug_message(self, debug_message):
         self.debug_message = debug_message
         return self
 
     def add_debug_line(self, points, color=None):
-        self.debug_lines.append((points, color))
+        if self.debug:
+            self.debug_lines.append((points, color))
         return self
 
     def add_debug_circle(self, circle, color=None):
-        self.debug_circles.append((circle, color))
+        if self.debug:
+            self.debug_circles.append((circle, color))
         return self
 
 
@@ -191,7 +195,9 @@ class PathTree:
         self.children = children or []
 
         me = state.me
-        self.score = me.m + math.sqrt(me.v.length())
+        self.score = me.m
+
+        self.score += math.sqrt(me.v.length())
 
         for danger in state.dangers:
             if danger.can_hurt(me):
@@ -232,19 +238,19 @@ class Planner:
                     (MAX_SKIPS - MIN_SKIPS) /
                     (MAX_SKIPS_MASS - MIN_SKIPS_MASS))))
 
-        self.tips = {}
-        self.root = self.new_tip(State(me, foods, dangers))
+        if self.root is None or self.root.state.me.distance_to(me) > ROOT_EPS * self.skips:
+            self.tips = {}
+            self.root = self.new_tip(State(me, foods, dangers))
 
         seen = set()
-        frontier = collections.deque([self.root])
+        frontier = collections.deque(self.tips.values())
         while frontier:
             node = frontier.popleft()
-            tips = self.expand(node)
-            for tip in tips:
-                xy = (int(tip.state.me.x / me.r), int(tip.state.me.y / me.r))
-                if xy in seen or not me.can_see(tip.state.me) or tip.score < 0:
-                    continue
-                seen.add(xy)
+            xy = (int(node.state.me.x / me.r), int(node.state.me.y / me.r))
+            if xy in seen or not me.can_see(node.state.me) or node.score < 0:
+                continue
+            seen.add(xy)
+            for tip in self.expand(node):
                 frontier.append(tip)
 
         for _ in range(MAX_PROMISING_EXPANSIONS):
@@ -254,8 +260,18 @@ class Planner:
             self.expand(node)
 
         tip = max(self.tips.values(), key=lambda node: node.score)
-        next_root = self.get_next_root(tip)
-        return next_root.v, tip
+        self.next_root = self.get_next_root(tip)
+        return self.next_root.v, tip
+
+
+    def advance(self):
+        next_root = self.next_root
+        self.next_root = None
+        not_roots = [child for child in self.root.children if child is not next_root]
+        for node in self.discover_nodes(not_roots):
+            self.remove_tip(node)
+        next_root.parent = None
+        self.root = next_root
 
     def get_next_root(self, tip):
         node = tip
@@ -389,9 +405,8 @@ class Strategy:
 
         def dfs(node):
             for child in node.children:
-                command.add_debug_line([node.state.me, child.state.me], 'gray')
+                #command.add_debug_line([node.state.me, child.state.me], 'gray')
                 dfs(child)
-
         dfs(self.planner.root)
 
         command.add_debug_message('t={}'.format(len(self.planner.tips)))
@@ -399,6 +414,7 @@ class Strategy:
         t = tip.state.me
         command.add_debug_circle(Circle(t.x, t.y, 2), 'red')
 
+        self.planner.advance()
         return command
 
     def run(self):
