@@ -5,10 +5,10 @@ import os
 import random
 import numpy as np
 
-NUM_TIPS_TO_LEAVE = 10
+NUM_TIPS_TO_LEAVE = 5
 SKIPPER_INTERVAL = 100
 BIG_V = 100
-NUM_DIRECTIONS = 8
+NUM_DIRECTIONS = 4
 ROOT_EPS = 3
 
 
@@ -206,7 +206,6 @@ class Planner:
 
         def dfs(node):
             self.nodes.append(node)
-            node.distance_to_me = me.distance_to(node.me)
             if node.children:
                 for child in node.children:
                     dfs(child)
@@ -229,6 +228,8 @@ class Planner:
                 node = node.parent
 
         self.nodes = [node for node in self.nodes if node.should_keep]
+        for node in self.nodes:
+            node.distance_to_me = me.distance_to(node.me)
         for node in self.nodes:
             node.children = [
                 child for child in node.children if child.should_keep
@@ -296,13 +297,6 @@ class Strategy:
         self.my_blobs.sort(key=lambda b: b.m, reverse=True)
         me = self.my_blobs[0]
 
-        #if not self.food:
-        #    command = self.skipper.skip('No food')
-        #else:
-        #    # Go to the closest food.
-        #    food = min(self.food, key=lambda b: b.distance_to(me))
-        #    command = GoTo(food, 'EAT')
-
         v = self.planner.update(me)
         command = GoTo(me + v)
 
@@ -324,17 +318,17 @@ class Strategy:
             else:
                 tips += 1
 
-        #for root in self.planner.roots:
-        #    dfs(root)
-        #command.add_debug_message(
-        #    'roots={} nodes={} tips={} t={} n={} lines={} v=({:.2f} {:.2f})'.format(
-        #        len(self.planner.roots), len(self.planner.nodes),
-        #        len(self.planner.tips), tips, nodes, lines, v.x, v.y))
-        #t = self.planner.skipper.target
-        #command.add_debug_circle(Circle(t.x, t.y, 4))
-        #for tip in self.planner.tips:
-        #    t = tip.me
-        #    command.add_debug_circle(Circle(t.x, t.y, 2))
+        for root in self.planner.roots:
+            dfs(root)
+        command.add_debug_message(
+            'roots={} nodes={} tips={} t={} n={} lines={} v=({:.2f} {:.2f})'.format(
+                len(self.planner.roots), len(self.planner.nodes),
+                len(self.planner.tips), tips, nodes, lines, v.x, v.y))
+        t = self.planner.skipper.target
+        command.add_debug_circle(Circle(t.x, t.y, 4))
+        for tip in self.planner.tips:
+            t = tip.me
+            command.add_debug_circle(Circle(t.x, t.y, 2))
 
         return command
 
