@@ -187,12 +187,21 @@ class Planner:
         if not self.roots:
             self.roots.append(PathTree(me))
         self.nodes = self.roots.copy()
-        NUM_EXPANSIONS = 100
+        NUM_EXPANSIONS = 10
         for _ in range(NUM_EXPANSIONS):
-            self.nodes.sort(key=lambda node: node.me.distance_to(self.skipper.target))
-            self.expand(self.nodes[0])
-        #self.update_roots(me)
-        return self.get_v(self.nodes[0])
+            self.expand(self.find_best_node())
+        return self.get_v(self.find_best_node())
+
+    def find_best_node(self):
+        self.nodes.sort(key=lambda node: (len(node.children), node.me.distance_to(self.skipper.target)))
+        return self.nodes[0]
+
+    def expand(self, node):
+        node.children = [
+            PathTree(self.predict_move(node.me, v), v=v, parent=node)
+            for v in self.vs
+        ]
+        self.nodes.extend(node.children)
 
     def update_nodes(self):
         self.nodes = []
@@ -206,13 +215,6 @@ class Planner:
             dfs(root)
 
         self.nodes.sort(key=lambda node: node.me.distance_to(self.skipper.target))
-
-    def expand(self, node):
-        node.children = [
-            PathTree(self.predict_move(node.me, v), v=v, parent=node)
-            for v in self.vs
-        ]
-        self.nodes.extend(node.children)
 
     def update_roots(self, me):
         self.roots = [
