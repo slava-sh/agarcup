@@ -165,6 +165,9 @@ class PathTree:
         self.parent = parent
         self.children = children or []
 
+    def score(self, target):
+        return -self.me.distance_to(target)
+
     def __repr__(self):
         return '{}{!r}'.format(id(self), self.me)
 
@@ -178,32 +181,57 @@ class Planner:
             for angle in np.linspace(0, math.pi * 2, NUM_DIRECTIONS + 1)[:-1]
         ]
         self.roots = []
+        self.tips = {}
         self.skipper = Skipper(config)
 
     def update(self, me):
         self.skipper.skip()
         self.update_roots(me)
 
-        nodes = self.discover_nodes(self.roots)
         for _ in range(NUM_EXPANSIONS):
-            nodes.extend(self.expand(self.find_best_node(nodes)))
-        return self.get_v(self.find_best_node(nodes))
+            node = self.select_node(me)
+            self.expand(node)
+        tip = max(self.tips.values(), key=lambda node: node.score(self.skipper.target))
+        return self.get_v(tip), tip
+
+    def select_node(self, me):
+        score = lambda node: node.score(self.skipper.target)
+        return max(self.tips.values(), key=score)
+        node = max(self.roots, key=score)
+        while node.children:
+            node = max(node.children, key=score)
+        return node
 
     def update_roots(self, me):
         new_roots = []
         for root in self.roots:
             better_roots = []
+            not_roots = []
             for child in root.children:
                 if child.me.distance_to(me) < root.me.distance_to(me):
                     child.parent = None
                     better_roots.append(child)
+                else:
+                    not_roots.append(child)
             if better_roots:
                 new_roots.extend(better_roots)
+                for node in self.discover_nodes(not_roots):
+                    self.remove_tip(node)
             else:
                 new_roots.append(root)
-        self.roots = [root for root in new_roots if root.me.distance_to(me) < ROOT_EPS]
+
+        self.roots = []
+        not_roots = []
+        for root in new_roots:
+            if root.me.distance_to(me) < ROOT_EPS:
+                self.roots.append(root)
+            else:
+                not_roots.append(root)
+        for node in self.discover_nodes(not_roots):
+            self.remove_tip(node)
+
         if not self.roots:
-            self.roots.append(PathTree(me))
+            self.roots.append(self.new_tip(me))
 
     def discover_nodes(self, roots):
         def go(node, nodes):
@@ -216,23 +244,25 @@ class Planner:
             go(root, nodes)
         return nodes
 
-    def node_can_be_root(self, node, me):
-        if node.me.distance_to(me) > ROOT_EPS:
-            return False
-        return node.parent is None or node.me.distance_to(
-            me) < node.parent.me.distance_to(me)
+    def new_tip(self, *args, **kwargs):
+        tip = PathTree(*args, **kwargs)
+        self.tips[id(tip)] = tip
+        return tip
 
-    def find_best_node(self, nodes):
-        nodes.sort(key=lambda node: (len(node.children), node.me.distance_to(self.skipper.target)))
-        return nodes[0]
+    def remove_tip(self, tip):
+        try:
+            del self.tips[id(tip)]
+        except KeyError:
+            pass
 
     def expand(self, node):
         if node.children:
             raise ValueError('node already expanded')
         node.children = [
-            PathTree(self.predict_move(node.me, v), v=v, parent=node)
+            self.new_tip(self.predict_move(node.me, v), v=v, parent=node)
             for v in self.vs
         ]
+        self.remove_tip(node)
         return node.children
 
     def get_v(self, node):
@@ -279,7 +309,8 @@ class Strategy:
         self.my_blobs.sort(key=lambda b: b.m, reverse=True)
         me = self.my_blobs[0]
 
-        v = self.planner.update(me) or Point(0, 0)
+        v, tip = self.planner.update(me)
+        v = v or Point(0, 0)
         command = GoTo(me + v)
 
         #for root in self.planner.roots:
@@ -304,20 +335,15 @@ class Strategy:
         for root in self.planner.roots:
             dfs(root)
         command.add_debug_message(
-            'roots={} n={} t={} lines={} v=({:.2f} {:.2f})'.format(
-                len(self.planner.roots), nodes, tips,
+            'roots={} n={} t={} nt={} lines={} v=({:.2f} {:.2f})'.format(
+                len(self.planner.roots), nodes, tips, len(self.planner.tips),
                 lines, v.x, v.y))
 
         t = self.planner.skipper.target
         command.add_debug_circle(Circle(t.x, t.y, 4), 'red')
 
-        for root in self.planner.roots:
-            t = root.me
-            command.add_debug_circle(Circle(t.x, t.y, 1), 'blue')
-
-        nodes = self.planner.discover_nodes(self.planner.roots)
-        t = self.planner.find_best_node(nodes).me
-        command.add_debug_circle(Circle(t.x, t.y, 2), 'green')
+        t = tip.me
+        command.add_debug_circle(Circle(t.x, t.y, 2), 'red')
 
         return command
 
