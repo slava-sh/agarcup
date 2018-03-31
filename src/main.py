@@ -8,8 +8,9 @@ import collections
 
 SKIPPER_INTERVAL = 50
 BIG_V = 100
-NUM_DIRECTIONS = 4
-ROOT_EPS = 10
+NUM_DIRECTIONS = 4 * 5
+ROOT_EPS = 3
+NUM_EXPANSIONS = 2
 
 
 class Point:
@@ -183,26 +184,19 @@ class Planner:
         self.skipper.skip()
         self.update_roots(me)
 
-        NUM_EXPANSIONS = 1
         nodes = self.discover_nodes(self.roots)
-        for node in nodes:
-            self.logger.debug('nodes  : %r', node)
         for _ in range(NUM_EXPANSIONS):
-            self.expand(self.find_best_node(nodes))
-
-        nodes = self.discover_nodes(self.roots)
+            nodes.extend(self.expand(self.find_best_node(nodes)))
         return self.get_v(self.find_best_node(nodes))
 
     def update_roots(self, me):
-        self.logger.debug('me     : %r', me)
-
-        self.logger.debug('roots b: %d', len(self.roots))
-        for r in self.roots:
-            self.logger.debug('roots  : %r', r)
-
         new_roots = []
         for root in self.roots:
-            better_roots = [child for child in root.children if child.me.distance_to(me) < root.me.distance_to(me)]
+            better_roots = []
+            for child in root.children:
+                if child.me.distance_to(me) < root.me.distance_to(me):
+                    child.parent = None
+                    better_roots.append(child)
             if better_roots:
                 new_roots.extend(better_roots)
             else:
@@ -210,18 +204,6 @@ class Planner:
         self.roots = [root for root in new_roots if root.me.distance_to(me) < ROOT_EPS]
         if not self.roots:
             self.roots.append(PathTree(me))
-
-        for root in self.roots:
-            if root.parent:
-                self.logger.debug('new root: %r %f %f %r',
-                        root,
-                        root.me.distance_to(me),
-                        root.parent.me.distance_to(me),
-                        root.me.distance_to(me) < root.parent.me.distance_to(me))
-            root.parent = None
-        self.logger.debug('roots a: %d', len(self.roots))
-        for r in self.roots:
-            self.logger.debug('roots  : %r', r)
 
     def discover_nodes(self, roots):
         def go(node, nodes):
@@ -246,12 +228,12 @@ class Planner:
 
     def expand(self, node):
         if node.children:
-            assert False, 'node already expanded'
-            return
+            raise ValueError('node already expanded')
         node.children = [
             PathTree(self.predict_move(node.me, v), v=v, parent=node)
             for v in self.vs
         ]
+        return node.children
 
     def get_v(self, node):
         v = None
@@ -328,6 +310,10 @@ class Strategy:
 
         t = self.planner.skipper.target
         command.add_debug_circle(Circle(t.x, t.y, 4), 'red')
+
+        for root in self.planner.roots:
+            t = root.me
+            command.add_debug_circle(Circle(t.x, t.y, 1), 'blue')
 
         nodes = self.planner.discover_nodes(self.planner.roots)
         t = self.planner.find_best_node(nodes).me
