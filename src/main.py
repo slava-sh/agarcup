@@ -12,6 +12,8 @@ NUM_DIRECTIONS = 4 * 5
 NUM_EXPANSIONS = 10
 ROOT_EPS = 1
 SKIPS = 10
+SAFETY_MARGIN_FACTOR = 2.5
+SAFETY_MARGIN_PENALTY = -5
 
 
 class Point:
@@ -177,13 +179,21 @@ class Config:
 
 
 class PathTree:
-    def __init__(self, state, v=None, parent=None, children=None):
+    def __init__(self, state, config, v=None, parent=None, children=None):
         self.state = state
         self.v = v
         self.parent = parent
         self.children = children or []
         self.visits = 0
-        self.score = state.me.m + state.me.v.length()
+
+        me = state.me
+        self.score = me.m + me.v.length()
+
+        SAFETY_MARGIN = me.r * SAFETY_MARGIN_FACTOR
+        if me.x < SAFETY_MARGIN or me.x > config.GAME_WIDTH - SAFETY_MARGIN:
+            self.score += SAFETY_MARGIN_PENALTY
+        if me.y < SAFETY_MARGIN or me.y > config.GAME_HEIGHT - SAFETY_MARGIN:
+            self.score += SAFETY_MARGIN_PENALTY
 
     def __repr__(self):
         return '{}{!r}'.format(id(self), self.state.me)
@@ -246,7 +256,7 @@ class Planner:
         return nodes
 
     def new_tip(self, *args, **kwargs):
-        tip = PathTree(*args, **kwargs)
+        tip = PathTree(*args, **kwargs, config=self.config)
         self.tips[id(tip)] = tip
         return tip
 
@@ -289,12 +299,8 @@ class Planner:
             self.config.INERTION_FACTOR / new_m)
         new_v = new_v.with_length(min(max_speed, new_v.length()))
         new_pos = me + new_v
-        SAFETY_MARGIN = me.r
-        new_pos.x = max(SAFETY_MARGIN,
-                        min(self.config.GAME_WIDTH - SAFETY_MARGIN, new_pos.x))
-        new_pos.y = max(SAFETY_MARGIN,
-                        min(self.config.GAME_HEIGHT - SAFETY_MARGIN,
-                            new_pos.y))
+        new_pos.x = max(me.r, min(self.config.GAME_WIDTH - me.r, new_pos.x))
+        new_pos.y = max(me.r, min(self.config.GAME_HEIGHT - me.r, new_pos.y))
         return State(
             Me(id=me.id,
                x=new_pos.x,
