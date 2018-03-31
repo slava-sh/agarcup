@@ -96,11 +96,17 @@ class Virus(Blob):
 
 
 class Command(Point):
-    def __init__(self, x, y, debug_message=None, debug_lines=None):
+    def __init__(self,
+                 x,
+                 y,
+                 debug_message=None,
+                 debug_lines=None,
+                 debug_circles=None):
         self.x = x
         self.y = y
         self.debug_message = debug_message
         self.debug_lines = debug_lines or []
+        self.debug_circles = debug_circles or []
 
     def add_debug_message(self, debug_message):
         self.debug_message = debug_message
@@ -108,6 +114,10 @@ class Command(Point):
 
     def add_debug_line(self, line):
         self.debug_lines.append(line)
+        return self
+
+    def add_debug_circle(self, circle):
+        self.debug_circles.append(circle)
         return self
 
 
@@ -145,10 +155,16 @@ class Config:
 
 
 class PathTree:
-    def __init__(self, me, parent=None, children=None):
+    def __init__(self, me, v=None, parent=None, children=None):
         self.me = me
+        self.v = v
         self.parent = parent
         self.children = children or []
+
+    def __repr__(self):
+        me = self.me
+        return 'Node(me=({:.2f}, {:.2f}) v=({:.2f}, {:.2f}) children={})'.format(
+            me.x, me.y, me.v.x, me.v.y, repr(self.children))
 
 
 class Planner:
@@ -160,13 +176,19 @@ class Planner:
             for angle in np.linspace(0, math.pi * 2, NUM_DIRECTIONS + 1)[:-1]
         ]
         self.roots = []
+        self.skipper = Skipper(config)
 
     def update(self, me):
+        self.logger.debug('before update')
+        self.skipper.skip()
         if not self.roots:
             self.roots.append(PathTree(me))
+        self.logger.debug('before expand')
         for root in self.roots:
             self.expand(root)
+        self.logger.debug('before trim')
         self.trim(me)
+        self.logger.debug('after update / before get best v')
         return self.get_best_v()
 
     def expand(self, node):
@@ -176,7 +198,7 @@ class Planner:
         else:
             for v in self.vs:
                 new_me = self.predict_move(node.me, v)
-                node.children.append(PathTree(new_me, parent=node))
+                node.children.append(PathTree(new_me, v=v, parent=node))
 
     def trim(self, me):
         self.nodes = []
@@ -194,14 +216,15 @@ class Planner:
         for root in self.roots:
             dfs(root)
 
+        self.logger.debug('got %d nodes', len(self.nodes))
+        self.tips.sort(key=lambda t: t.me.distance_to(self.skipper.target))
+        self.tips = self.tips[:NUM_TIPS_TO_LEAVE]
+        assert len(self.tips) <= NUM_TIPS_TO_LEAVE
         for node in self.nodes:
             node.should_keep = False
-
-        self.tips.sort(key=lambda t: t.distance_to_me, reverse=True)
-        self.tips = self.tips[:NUM_TIPS_TO_LEAVE]
         for tip in self.tips:
             node = tip
-            while node:
+            while node is not None:
                 node.should_keep = True
                 node = node.parent
 
@@ -216,20 +239,23 @@ class Planner:
         ]
         for root in self.roots:
             root.parent = None
+        assert len(self.tips) <= NUM_TIPS_TO_LEAVE
 
     def node_can_be_root(self, node):
-        if node.parent and node.parent.distance_to_me < ROOT_EPS:
+        if node.distance_to_me > ROOT_EPS:
             return False
-        return node.distance_to_me < ROOT_EPS
+        return node.parent is None or node.distance_to_me < node.parent.distance_to_me
 
     def get_best_v(self):
+        assert len(self.tips) <= NUM_TIPS_TO_LEAVE
+        v = None
         node = self.tips[0]
-        while True:
-            v = node.me.v
+        while node is not None and node.v is not None:
+            v = node.v
+            me = node.me
+            self.logger.debug('best path: %.3f %.3f to %.3f %.3f', v.x, v.y, me.x, me.y)
             node = node.parent
-            if node is None or node.parent is None:
-                break
-        return v or Point(0, 0)
+        return v
 
     def predict_moves(self, me, vs):
         for v in vs:
@@ -242,7 +268,7 @@ class Planner:
             self.config.INERTION_FACTOR / me.m)
         new_v = new_v.with_length(min(max_speed, new_v.length()))
         new_pos = me + new_v
-        SAFETY_MARGIN = 3 * me.r
+        SAFETY_MARGIN = 8 * me.r
         new_pos.x = max(SAFETY_MARGIN,
                         min(self.config.GAME_WIDTH - SAFETY_MARGIN, new_pos.x))
         new_pos.y = max(SAFETY_MARGIN,
@@ -280,11 +306,16 @@ class Strategy:
         v = self.planner.update(me)
         command = GoTo(me + v)
 
+        #for root in self.planner.roots:
+        #    self.logger.debug('%s', repr(root))
+
         tips = 0
+        nodes = 0
         lines = 0
 
         def dfs(node):
-            nonlocal tips, lines
+            nonlocal tips, lines, nodes
+            nodes += 1
             if node.children:
                 for child in node.children:
                     command.add_debug_line([node.me, child.me])
@@ -293,12 +324,17 @@ class Strategy:
             else:
                 tips += 1
 
-        for root in self.planner.roots:
-            dfs(root)
-
-        command.add_debug_message(
-            'roots={} tips={} lines={} v=({:.2f} {:.2f})'.format(
-                len(self.planner.roots), tips, lines, v.x, v.y))
+        #for root in self.planner.roots:
+        #    dfs(root)
+        #command.add_debug_message(
+        #    'roots={} nodes={} tips={} t={} n={} lines={} v=({:.2f} {:.2f})'.format(
+        #        len(self.planner.roots), len(self.planner.nodes),
+        #        len(self.planner.tips), tips, nodes, lines, v.x, v.y))
+        #t = self.planner.skipper.target
+        #command.add_debug_circle(Circle(t.x, t.y, 4))
+        #for tip in self.planner.tips:
+        #    t = tip.me
+        #    command.add_debug_circle(Circle(t.x, t.y, 2))
 
         return command
 
@@ -320,8 +356,13 @@ class Strategy:
                         X=command.x,
                         Y=command.y,
                         Debug=command.debug_message,
-                        Draw=dict(Lines=[[dict(X=p.x, Y=p.y) for p in line]
-                                         for line in command.debug_lines]))))
+                        Draw=dict(
+                            Lines=[[dict(X=p.x, Y=p.y) for p in line]
+                                   for line in command.debug_lines],
+                            Circles=[
+                                dict(X=c.x, Y=c.y, R=c.r)
+                                for c in command.debug_circles
+                            ]))))
 
             if self.my_blobs:
                 me = self.my_blobs[0]
@@ -386,7 +427,7 @@ def get_logger():
     logger.addHandler(ch)
 
     if os.getenv('DEBUG_STRATEGY'):
-        fh = logging.FileHandler('log.txt', 'w')
+        fh = logging.FileHandler('/tmp/log.txt', 'w')
         fh.setLevel(logging.DEBUG)
         fh.setFormatter(formatter)
         logger.addHandler(fh)
