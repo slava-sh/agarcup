@@ -187,7 +187,7 @@ class Planner:
         if not self.roots:
             self.roots.append(PathTree(me))
         self.nodes = self.roots.copy()
-        NUM_EXPANSIONS = 10
+        NUM_EXPANSIONS = 50
         for _ in range(NUM_EXPANSIONS):
             self.expand(self.find_best_node())
         return self.get_v(self.find_best_node())
@@ -295,31 +295,27 @@ class Strategy:
         tips = 0
         nodes = 0
         lines = 0
-
         def dfs(node):
             nonlocal tips, lines, nodes
             nodes += 1
-            self.logger.debug('node %r', node.me)
             if node.children:
                 for child in node.children:
-                    self.logger.debug('-> %r %r', node.me, child.me)
                     command.add_debug_line([node.me, child.me])
                     lines += 1
                     dfs(child)
             else:
                 tips += 1
-
-        self.logger.debug('TREE')
         for root in self.planner.roots:
-            self.logger.debug('root %r', root.me)
             dfs(root)
         command.add_debug_message(
-            'roots={} nodes={} t={} n={} lines={} v=({:.2f} {:.2f})'.
+            'roots={} nodes={} n={} t={} lines={} v=({:.2f} {:.2f})'.
             format(
                 len(self.planner.roots), len(self.planner.nodes),
-                tips, nodes, lines, v.x, v.y))
+                nodes, tips, lines, v.x, v.y))
+
         t = self.planner.skipper.target
         command.add_debug_circle(Circle(t.x, t.y, 4), 'red')
+
         t = self.planner.nodes[0].me
         command.add_debug_circle(Circle(t.x, t.y, 2), 'green')
 
