@@ -28,6 +28,9 @@ class Point:
     def distance_to(self, other):
         return math.hypot(self.x - other.x, self.y - other.y)
 
+    def qdistance_to(self, other):
+        return (self.x - other.x)**2 + (self.y - other.y)**2
+
     def angle(self):
         return math.atan2(self.y, self.x)
 
@@ -79,15 +82,15 @@ class Player(Blob):
         self.vision_radius = vision_radius
 
     def can_eat(self, other):
-        return self.m > other.m * self.config.MASS_EAT_FACTOR and self.distance_to(
-            other) < self.r - other.r * self.config.RAD_EAT_FACTOR
+        return self.m > other.m * self.config.MASS_EAT_FACTOR and self.qdistance_to(
+            other) < (self.r - other.r * self.config.RAD_EAT_FACTOR)**2
 
     def can_see(self, other):
         angle = self.v.angle()
         x = self.x + math.cos(angle) * self.config.VIS_SHIFT
         y = self.y + math.sin(angle) * self.config.VIS_SHIFT
-        dist = other.distance_to(Point(x, y))
-        return dist < self.vision_radius + other.r
+        return other.qdistance_to(Point(x,
+                                        y)) < (self.vision_radius + other.r)**2
 
     def can_burst(self):
         # TODO
@@ -128,8 +131,8 @@ class Virus(Blob):
     def can_hurt(self, other):
         if other.r < self.r or not other.can_burst():
             return False
-        return self.distance_to(
-            other) < self.r * self.config.RAD_HURT_FACTOR + other.r
+        return self.qdistance_to(other) < (
+            self.r * self.config.RAD_HURT_FACTOR + other.r)**2
 
 
 class Command(Point):
@@ -186,7 +189,13 @@ class Config:
 
 
 class PathTree:
-    def __init__(self, state, config, root=None, v=None, parent=None, children=None):
+    def __init__(self,
+                 state,
+                 config,
+                 root=None,
+                 v=None,
+                 parent=None,
+                 children=None):
         self.state = state
         self.v = v
         self.parent = parent
@@ -394,6 +403,7 @@ class Strategy:
             for child in node.children:
                 #command.add_debug_line([node.state.me, child.state.me], 'gray')
                 dfs(child)
+
         dfs(self.planner.root)
 
         command.add_debug_message('t={}'.format(len(self.planner.tips)))
