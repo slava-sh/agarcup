@@ -5,11 +5,10 @@ import os
 import random
 import numpy as np
 
-NUM_TIPS_TO_LEAVE = 5
 SKIPPER_INTERVAL = 100
 BIG_V = 100
-NUM_DIRECTIONS = 4
-ROOT_EPS = 3
+NUM_DIRECTIONS = 10
+ROOT_EPS = 10
 
 
 class Point:
@@ -46,6 +45,9 @@ class Point:
 
     def __sub__(self, other):
         return Point(self.x - other.x, self.y - other.y)
+
+    def __repr__(self):
+        return '({:.3f}, {:.3f})'.format(self.x, self.y)
 
 
 class Circle(Point):
@@ -116,8 +118,8 @@ class Command(Point):
         self.debug_lines.append(line)
         return self
 
-    def add_debug_circle(self, circle):
-        self.debug_circles.append(circle)
+    def add_debug_circle(self, circle, color=None):
+        self.debug_circles.append((circle, color))
         return self
 
 
@@ -179,89 +181,66 @@ class Planner:
         self.skipper = Skipper(config)
 
     def update(self, me):
-        self.logger.debug('before update')
         self.skipper.skip()
+        self.roots = []
         if not self.roots:
             self.roots.append(PathTree(me))
-        self.logger.debug('before expand')
-        for root in self.roots:
-            self.expand(root)
-        self.logger.debug('before trim')
-        self.trim(me)
-        self.logger.debug('after update / before get best v')
-        return self.get_best_v()
+        self.nodes = self.roots.copy()
+        for _ in range(100):
+            self.nodes.sort(key=lambda node: node.me.distance_to(self.skipper.target))
+            self.expand(self.nodes[0])
+        #self.update_roots(me)
+        return self.get_v(self.nodes[0])
 
-    def expand(self, node):
-        if node.children:
-            for child in node.children:
-                self.expand(child)
-        else:
-            for v in self.vs:
-                new_me = self.predict_move(node.me, v)
-                node.children.append(PathTree(new_me, v=v, parent=node))
-
-    def trim(self, me):
+    def update_nodes(self):
         self.nodes = []
-        self.tips = []
 
         def dfs(node):
             self.nodes.append(node)
-            if node.children:
-                for child in node.children:
-                    dfs(child)
-            else:
-                self.tips.append(node)
+            for child in node.children:
+                dfs(child)
 
         for root in self.roots:
             dfs(root)
 
-        self.logger.debug('got %d nodes', len(self.nodes))
-        self.tips.sort(key=lambda t: t.me.distance_to(self.skipper.target))
-        self.tips = self.tips[:NUM_TIPS_TO_LEAVE]
-        assert len(self.tips) <= NUM_TIPS_TO_LEAVE
-        for node in self.nodes:
-            node.should_keep = False
-        for tip in self.tips:
-            node = tip
-            while node is not None:
-                node.should_keep = True
-                node = node.parent
+        self.nodes.sort(key=lambda node: node.me.distance_to(self.skipper.target))
 
-        self.nodes = [node for node in self.nodes if node.should_keep]
-        for node in self.nodes:
-            node.distance_to_me = me.distance_to(node.me)
-        for node in self.nodes:
-            node.children = [
-                child for child in node.children if child.should_keep
-            ]
-
-        self.roots = [
-            node for node in self.nodes if self.node_can_be_root(node)
+    def expand(self, node):
+        node.children = [
+            PathTree(self.predict_move(node.me, v), v=v, parent=node)
+            for v in self.vs
         ]
+        self.nodes.extend(node.children)
+
+    def update_roots(self, me):
+        self.roots = [
+            node for node in self.nodes if self.node_can_be_root(node, me)
+        ]
+
+        new_roots = []
+        ps = set()
+        for root in self.roots:
+            p = (int(root.me.x), int(root.me.y))
+            if p not in ps:
+                ps.add(p)
+                new_roots.append(root)
+        self.roots = new_roots
+
         for root in self.roots:
             root.parent = None
-        assert len(self.tips) <= NUM_TIPS_TO_LEAVE
 
-    def node_can_be_root(self, node):
-        if node.distance_to_me > ROOT_EPS:
+    def node_can_be_root(self, node, me):
+        if node.me.distance_to(me) > ROOT_EPS:
             return False
-        return node.parent is None or node.distance_to_me < node.parent.distance_to_me
+        return node.parent is None or node.me.distance_to(
+            me) < node.parent.me.distance_to(me)
 
-    def get_best_v(self):
-        assert len(self.tips) <= NUM_TIPS_TO_LEAVE
+    def get_v(self, node):
         v = None
-        node = self.tips[0]
         while node is not None and node.v is not None:
             v = node.v
-            me = node.me
-            self.logger.debug('best path: %.3f %.3f to %.3f %.3f', v.x, v.y, me.x, me.y)
             node = node.parent
         return v
-
-    def predict_moves(self, me, vs):
-        for v in vs:
-            me = self.predict_move(me, v)
-        return me
 
     def predict_move(self, me, v):
         max_speed = self.config.SPEED_FACTOR / math.sqrt(me.m)
@@ -269,7 +248,7 @@ class Planner:
             self.config.INERTION_FACTOR / me.m)
         new_v = new_v.with_length(min(max_speed, new_v.length()))
         new_pos = me + new_v
-        SAFETY_MARGIN = 8 * me.r
+        SAFETY_MARGIN = me.r
         new_pos.x = max(SAFETY_MARGIN,
                         min(self.config.GAME_WIDTH - SAFETY_MARGIN, new_pos.x))
         new_pos.y = max(SAFETY_MARGIN,
@@ -291,13 +270,14 @@ class Strategy:
 
     def on_tick(self):
         if not self.my_blobs:
-            return self.skipper.skip('Died')
+            assert False
+            return GoTo(0, 0, 'DEAD')
 
         # Find my biggest blob.
         self.my_blobs.sort(key=lambda b: b.m, reverse=True)
         me = self.my_blobs[0]
 
-        v = self.planner.update(me)
+        v = self.planner.update(me) or Point(0, 0)
         command = GoTo(me + v)
 
         #for root in self.planner.roots:
@@ -310,32 +290,35 @@ class Strategy:
         def dfs(node):
             nonlocal tips, lines, nodes
             nodes += 1
+            self.logger.debug('node %r', node.me)
             if node.children:
                 for child in node.children:
+                    self.logger.debug('-> %r %r', node.me, child.me)
                     command.add_debug_line([node.me, child.me])
                     lines += 1
                     dfs(child)
             else:
                 tips += 1
 
+        self.logger.debug('TREE')
         for root in self.planner.roots:
+            self.logger.debug('root %r', root.me)
             dfs(root)
         command.add_debug_message(
-            'roots={} nodes={} tips={} t={} n={} lines={} v=({:.2f} {:.2f})'.format(
+            'roots={} nodes={} t={} n={} lines={} v=({:.2f} {:.2f})'.
+            format(
                 len(self.planner.roots), len(self.planner.nodes),
-                len(self.planner.tips), tips, nodes, lines, v.x, v.y))
+                tips, nodes, lines, v.x, v.y))
         t = self.planner.skipper.target
-        command.add_debug_circle(Circle(t.x, t.y, 4))
-        for tip in self.planner.tips:
-            t = tip.me
-            command.add_debug_circle(Circle(t.x, t.y, 2))
+        command.add_debug_circle(Circle(t.x, t.y, 4), 'red')
+        t = self.planner.nodes[0].me
+        command.add_debug_circle(Circle(t.x, t.y, 2), 'green')
 
         return command
 
     def run(self):
         self.logger.debug('hello')
         self.config = Config(self.read_json())
-        self.skipper = Skipper(self.config)
         self.planner = Planner(self.config, self.logger)
         while True:
             try:
@@ -354,8 +337,8 @@ class Strategy:
                             Lines=[[dict(X=p.x, Y=p.y) for p in line]
                                    for line in command.debug_lines],
                             Circles=[
-                                dict(X=c.x, Y=c.y, R=c.r)
-                                for c in command.debug_circles
+                                dict(X=c.x, Y=c.y, R=c.r, Color=color)
+                                for c, color in command.debug_circles
                             ]))))
 
             if self.my_blobs:
