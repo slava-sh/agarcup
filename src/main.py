@@ -10,7 +10,6 @@ import time
 MAX_PROMISING_EXPANSIONS = 10
 BIG_SPEED = 1000
 NUM_DIRECTIONS = 4 * 2
-ROOT_EPS = 1
 SAFETY_MARGIN_FACTOR = 2.5
 SAFETY_MARGIN_PENALTY = -3
 AVG_TICK_TIME_SECS = 150 / 7500
@@ -19,7 +18,6 @@ MIN_SKIPS_MASS = 40
 MAX_SKIPS = 50
 MAX_SKIPS_MASS = 500
 DANGER_PENALTY = -1000
-SPEED_BONUS = 1
 
 
 class Point:
@@ -238,19 +236,18 @@ class Planner:
                     (MAX_SKIPS - MIN_SKIPS) /
                     (MAX_SKIPS_MASS - MIN_SKIPS_MASS))))
 
-        if self.root is None or self.root.state.me.distance_to(me) > ROOT_EPS * self.skips:
-            self.tips = {}
-            self.root = self.new_tip(State(me, foods, dangers))
+        self.tips = {}
+        self.root = self.new_tip(State(me, foods, dangers))
 
         seen = set()
-        frontier = collections.deque(self.tips.values())
+        frontier = collections.deque([self.root])
         while frontier:
             node = frontier.popleft()
-            xy = (int(node.state.me.x / me.r), int(node.state.me.y / me.r))
-            if xy in seen or not me.can_see(node.state.me) or node.score < 0:
-                continue
-            seen.add(xy)
             for tip in self.expand(node):
+                xy = (int(tip.state.me.x / me.r), int(tip.state.me.y / me.r))
+                if xy in seen or not me.can_see(tip.state.me) or tip.score < 0:
+                    continue
+                seen.add(xy)
                 frontier.append(tip)
 
         for _ in range(MAX_PROMISING_EXPANSIONS):
@@ -262,16 +259,6 @@ class Planner:
         tip = max(self.tips.values(), key=lambda node: node.score)
         self.next_root = self.get_next_root(tip)
         return self.next_root.v, tip
-
-
-    def advance(self):
-        next_root = self.next_root
-        self.next_root = None
-        not_roots = [child for child in self.root.children if child is not next_root]
-        for node in self.discover_nodes(not_roots):
-            self.remove_tip(node)
-        next_root.parent = None
-        self.root = next_root
 
     def get_next_root(self, tip):
         node = tip
@@ -414,7 +401,6 @@ class Strategy:
         t = tip.state.me
         command.add_debug_circle(Circle(t.x, t.y, 2), 'red')
 
-        self.planner.advance()
         return command
 
     def run(self):
