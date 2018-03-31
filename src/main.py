@@ -9,7 +9,8 @@ import collections
 SKIPPER_INTERVAL = 50
 BIG_V = 100
 NUM_DIRECTIONS = 4 * 5
-NUM_EXPANSIONS = 10
+NUM_EXPANSIONS = 2
+ROOT_EPS = 1
 
 
 class Point:
@@ -179,15 +180,15 @@ class Planner:
             Point(math.cos(angle), math.sin(angle)) * BIG_V
             for angle in np.linspace(0, math.pi * 2, NUM_DIRECTIONS + 1)[:-1]
         ]
-        self.roots = []
+        self.root = None
         self.skipper = Skipper(config)
 
     def update(self, me):
         self.skipper.skip()
 
-        self.tips = {}
-        root = self.new_tip(me)
-        self.roots = [root]
+        if self.root is None or self.root.me.distance_to(me) > ROOT_EPS:
+            self.tips = {}
+            self.root = self.new_tip(me)
 
         for _ in range(NUM_EXPANSIONS):
             node = self.select_node(me)
@@ -195,9 +196,16 @@ class Planner:
 
         tip = max(self.tips.values(), key=lambda node: node.score(self.skipper.target))
         node = tip
-        while node.parent is not root:
+        while node.parent is not self.root:
             node = node.parent
-        return root, node, tip
+        return node, tip
+
+    def advance(self, next_root):
+        not_roots = [child for child in self.root.children if child is not next_root]
+        for node in self.discover_nodes(not_roots):
+            self.remove_tip(node)
+        next_root.parent = None
+        self.root = next_root
 
     def select_node(self, me):
         score = lambda node: node.score(self.skipper.target)
@@ -279,18 +287,16 @@ class Strategy:
         self.my_blobs.sort(key=lambda b: b.m, reverse=True)
         me = self.my_blobs[0]
 
-        root, node, tip = self.planner.update(me)
+        node, tip = self.planner.update(me)
         v = node.v
         command = GoTo(me + v)
+        root = self.planner.root
 
         self.logger.debug('me     %r', me)
         self.logger.debug('root   %r', root.me)
         self.logger.debug('node   %r', node.me)
         self.logger.debug('v      %r', node.v)
         self.logger.debug('root.v %r', root.v)
-
-        #for root in self.planner.roots:
-        #    self.logger.debug('%s', repr(root))
 
         self.tail.append(me)
         command.add_debug_line(self.tail, 'gray')
@@ -308,11 +314,10 @@ class Strategy:
                     dfs(child)
             else:
                 tips += 1
-        for root in self.planner.roots:
-            dfs(root)
+        dfs(self.planner.root)
         command.add_debug_message(
-            'roots={} n={} t={} nt={} lines={} v=({:.2f} {:.2f})'.format(
-                len(self.planner.roots), nodes, tips, len(self.planner.tips),
+            'n={} t={} nt={} lines={} v=({:.2f} {:.2f})'.format(
+                nodes, tips, len(self.planner.tips),
                 lines, v.x, v.y))
 
         t = self.planner.skipper.target
@@ -321,6 +326,7 @@ class Strategy:
         t = tip.me
         command.add_debug_circle(Circle(t.x, t.y, 2), 'red')
 
+        self.planner.advance(node)
         return command
 
     def run(self):
