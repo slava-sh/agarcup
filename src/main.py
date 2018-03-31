@@ -152,33 +152,76 @@ class Config:
         self.INERTION_FACTOR = config['INERTION_FACTOR']
 
 
+class PathTree:
+    def __init__(self, me, v=None, parent=None, children=None):
+        self.me = me
+        self.v = v
+        self.parent = parent
+        self.children = children or []
+
+
 class Planner:
     def __init__(self, config, logger, skips=3):
         self.config = config
         self.logger = logger
         self.skips = skips
-        self.paths = []
         self.vs = [
             Point(math.cos(angle), math.sin(angle)) * 100
             for angle in np.linspace(0, math.pi * 2, 4 + 1)[:-1]
         ]
+        self.tree = None
 
     def update(self, me):
-        new_paths = [[me]]
-        ends = set()
-        for path in self.paths:
-            if path[0].distance_to(me) > me.r:
-                continue
+        if self.tree is None or self.tree.me.distance_to(me) > me.r:
+            self.tree = PathTree(me)
+        self.expand(self.tree)
+        self.trim(me)
+        return self.get_best_v()
+
+    def expand(self, node):
+        if node.children:
+            for child in node.children:
+                self.expand(child)
+        else:
             for v in self.vs:
-                new_path = path.copy()
-                new_path.append(
-                    self.predict_moves(new_path[-1], [v] * self.skips))
-                end = (int(new_path[-1].x), int(new_path[-1].y))
-                if end not in ends:
-                    ends.add(end)
-                    new_paths.append(new_path)
-        new_paths.sort(key=lambda p: p[-1].distance_to(me), reverse=True)
-        self.paths = new_paths[:10]
+                new_me = self.predict_move(node.me, v)
+                node.children.append(PathTree(new_me, v=v, parent=node))
+
+    def trim(self, me):
+        nodes = []
+        self.tips = []
+
+        def dfs(node):
+            nodes.append(node)
+            for child in node.children:
+                dfs(child)
+            else:
+                self.tips.append(node)
+
+        dfs(self.tree)
+        for node in nodes:
+            node.should_delete = True
+        self.tips.sort(key=lambda t: self.tip_score(t, me), reverse=True)
+        for tip in self.tips[:50]:
+            node = tip
+            while node:
+                node.should_delete = False
+                node = node.parent
+        for node in nodes:
+            if not node.should_delete:
+                node.children = [
+                    child for child in node.children if not child.should_delete
+                ]
+
+    def tip_score(self, tip, me):
+        return me.distance_to(tip.me)
+
+    def get_best_v(self):
+        node = self.tips[0]
+        while node:
+            v = node.v
+            node = node.parent
+        return v or Point(0, 0)
 
     def predict_moves(self, me, vs):
         for v in vs:
@@ -222,14 +265,28 @@ class Strategy:
         #    food = min(self.food, key=lambda b: b.distance_to(me))
         #    command = GoTo(food, 'EAT')
 
-        self.planner.update(me)
-        v = self.planner.paths[0][-1] - me
-        command = GoTo(me + v * 100)
-        for path in self.planner.paths:
-            command.add_debug_line(path)
+        v = self.planner.update(me)
+        command = GoTo(me + v)
+        command.x = 200
+        command.y = 200
 
-        points = sum([len(line) for line in command.debug_lines])
-        command.add_debug_message('{} ({:8.2f} {:8.2f})'.format(points, v.x, v.y))
+        tips = 0
+        lines = 0
+
+        def dfs(tree):
+            nonlocal tips, lines
+            for child in tree.children:
+                command.add_debug_line([tree.me, child.me])
+                lines += 1
+                dfs(child)
+            else:
+                tips += 1
+
+        dfs(self.planner.tree)
+
+        command.add_debug_message('tips={} lines={} v=({:.2f} {:.2f})'.format(
+            tips, lines, v.x, v.y))
+
         return command
 
     def run(self):
@@ -254,21 +311,20 @@ class Strategy:
                         Draw=dict(Lines=[[dict(X=p.x, Y=p.y) for p in line]
                                          for line in command.debug_lines]))))
 
-
             if self.my_blobs:
                 me = self.my_blobs[0]
                 ep, ev = me.predict_move(command)
                 cur = (me, ep, ev)
-                if False and self.last:
+                if self.last:
                     (pme, pep, pev) = self.last
                     v = me - pme
                     good = math.isclose(me.x, pep.x) and math.isclose(
                         me.y, pep.y)
                     self.logger.debug(
-                        '%5r d(%.3f %.3f) %d me(%.3f %.3f) pep(%.3f %.3f) v(%.3f %.3f) pev(%.3f %.3f) %s %f %f',
-                        good, me.x - pep.x, me.y - pep.y, len(
-                            self.my_blobs), me.x, me.y, pep.x, pep.y, v.x, v.y,
-                        pev.x, pev.y, command.debug_message, me.m, me.r)
+                        '%5r d(%.3f %.3f) %d me(%.3f %.3f) v(%.3f %.3f) %s cmd(%.3f %.3f) m=%f r=%f',
+                        good, me.x - pep.x, me.y - pep.y, len(self.my_blobs),
+                        me.x, me.y, v.x, v.y, command.debug_message, command.x,
+                        command.y, me.m, me.r)
                 self.last = cur
 
     def parse_blobs(self, data):
