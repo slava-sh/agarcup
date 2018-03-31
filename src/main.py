@@ -4,10 +4,11 @@ import math
 import os
 import random
 import numpy as np
+import collections
 
-SKIPPER_INTERVAL = 100
+SKIPPER_INTERVAL = 50
 BIG_V = 100
-NUM_DIRECTIONS = 10
+NUM_DIRECTIONS = 4
 ROOT_EPS = 10
 
 
@@ -114,8 +115,8 @@ class Command(Point):
         self.debug_message = debug_message
         return self
 
-    def add_debug_line(self, line):
-        self.debug_lines.append(line)
+    def add_debug_line(self, points, color=None):
+        self.debug_lines.append((points, color))
         return self
 
     def add_debug_circle(self, circle, color=None):
@@ -186,7 +187,8 @@ class Planner:
         if not self.roots:
             self.roots.append(PathTree(me))
         self.nodes = self.roots.copy()
-        for _ in range(100):
+        NUM_EXPANSIONS = 100
+        for _ in range(NUM_EXPANSIONS):
             self.nodes.sort(key=lambda node: node.me.distance_to(self.skipper.target))
             self.expand(self.nodes[0])
         #self.update_roots(me)
@@ -267,6 +269,8 @@ class Planner:
 class Strategy:
     def __init__(self, logger):
         self.logger = logger
+        TAIL_SIZE = 50
+        self.tail = collections.deque([], TAIL_SIZE)
 
     def on_tick(self):
         if not self.my_blobs:
@@ -282,6 +286,9 @@ class Strategy:
 
         #for root in self.planner.roots:
         #    self.logger.debug('%s', repr(root))
+
+        self.tail.append(me)
+        command.add_debug_line(self.tail, 'gray')
 
         tips = 0
         nodes = 0
@@ -334,10 +341,11 @@ class Strategy:
                         Y=command.y,
                         Debug=command.debug_message,
                         Draw=dict(
-                            Lines=[[dict(X=p.x, Y=p.y) for p in line]
-                                   for line in command.debug_lines],
+                            Lines=[dict(P=[dict(X=p.x, Y=p.y) for p in points],
+                                        C=color)
+                                   for points, color in command.debug_lines],
                             Circles=[
-                                dict(X=c.x, Y=c.y, R=c.r, Color=color)
+                                dict(X=c.x, Y=c.y, R=c.r, C=color)
                                 for c, color in command.debug_circles
                             ]))))
 
