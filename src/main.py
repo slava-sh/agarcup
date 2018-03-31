@@ -7,15 +7,18 @@ import numpy as np
 import collections
 import time
 
-SKIPPER_INTERVAL = 50
+MAX_PROMISING_EXPANSIONS = 10
 BIG_SPEED = 1000
 NUM_DIRECTIONS = 4 * 2
-NUM_EXPANSIONS = 30
 ROOT_EPS = 1
-SKIPS = 5
 SAFETY_MARGIN_FACTOR = 2.5
-SAFETY_MARGIN_PENALTY = -2
-AVG_TICK_TIME_SECS = 150 / 7500 * SKIPS
+SAFETY_MARGIN_PENALTY = -3
+AVG_TICK_TIME_SECS = 150 / 7500
+MIN_SKIPS = 5
+MIN_SKIPS_MASS = 40
+MAX_SKIPS = 50
+MAX_SKIPS_MASS = 500
+DANGER_PENALTY = -1000
 
 
 class Point:
@@ -161,21 +164,6 @@ class GoTo(Command):
         super().__init__(point.x, point.y, debug_message)
 
 
-class Skipper:
-    def __init__(self, config, interval=SKIPPER_INTERVAL):
-        self.config = config
-        self.tick = 0
-        self.interval = interval
-
-    def skip(self, debug_message=None):
-        if self.tick % self.interval == 0:
-            self.target = Point(
-                random.randint(1, self.config.GAME_WIDTH - 1),
-                random.randint(1, self.config.GAME_HEIGHT - 1))
-        self.tick += 1
-        return GoTo(self.target, debug_message)
-
-
 class Config:
     def __init__(self, config):
         self.GAME_WIDTH = config['GAME_WIDTH']
@@ -196,15 +184,18 @@ class Config:
 
 
 class PathTree:
-    def __init__(self, state, config, v=None, parent=None, children=None):
+    def __init__(self, state, config, root=None, v=None, parent=None, children=None):
         self.state = state
         self.v = v
         self.parent = parent
         self.children = children or []
-        self.visits = 0
 
         me = state.me
-        self.score = me.m + me.v.length()
+        self.score = me.m + math.sqrt(me.v.length())
+
+        for danger in state.dangers:
+            if danger.can_hurt(me):
+                self.score += DANGER_PENALTY
 
         SAFETY_MARGIN = me.r * SAFETY_MARGIN_FACTOR
         if me.x < SAFETY_MARGIN or me.x > config.GAME_WIDTH - SAFETY_MARGIN:
@@ -232,14 +223,31 @@ class Planner:
             for angle in np.linspace(0, math.pi * 2, NUM_DIRECTIONS + 1)[:-1]
         ]
         self.root = None
-        self.skipper = Skipper(config)
+        self.skips = MIN_SKIPS
 
     def plan(self, me, foods, dangers):
-        self.skipper.skip()
+        self.skips = int(
+            max(MIN_SKIPS,
+                min(MAX_SKIPS, MIN_SKIPS + (me.m - MIN_SKIPS_MASS) *
+                    (MAX_SKIPS - MIN_SKIPS) /
+                    (MAX_SKIPS_MASS - MIN_SKIPS_MASS))))
 
         self.tips = {}
         self.root = self.new_tip(State(me, foods, dangers))
-        for _ in range(NUM_EXPANSIONS):
+
+        seen = set()
+        frontier = collections.deque([self.root])
+        while frontier:
+            node = frontier.popleft()
+            tips = self.expand(node)
+            for tip in tips:
+                xy = (int(tip.state.me.x / me.r), int(tip.state.me.y / me.r))
+                if xy in seen or not me.can_see(tip.state.me) or tip.score < 0:
+                    continue
+                seen.add(xy)
+                frontier.append(tip)
+
+        for _ in range(MAX_PROMISING_EXPANSIONS):
             node = self.select_node(me)
             if not node:
                 break
@@ -274,7 +282,7 @@ class Planner:
         return nodes
 
     def new_tip(self, *args, **kwargs):
-        tip = PathTree(*args, **kwargs, config=self.config)
+        tip = PathTree(*args, **kwargs, config=self.config, root=self.root)
         self.tips[id(tip)] = tip
         return tip
 
@@ -289,8 +297,9 @@ class Planner:
             raise ValueError('node already expanded')
         node.children = [
             self.new_tip(
-                self.predict_moves(node.state, [v] * SKIPS), v=v, parent=node)
-            for v in self.vs
+                self.predict_moves(node.state, [v] * self.skips),
+                v=v,
+                parent=node) for v in self.vs
         ]
         self.remove_tip(node)
         return node.children
@@ -302,7 +311,7 @@ class Planner:
 
     def predict_move(self, state, v):
         me = state.me
-        if me.id is None: # Dead.
+        if me.id is None:  # Dead.
             return state
 
         for danger in state.dangers:
@@ -356,14 +365,14 @@ class Strategy:
         else:
             self.tick += 1
 
-        if self.tick % SKIPS == 0:
+        if self.tick % self.planner.skips == 0:
             command = self.get_command()
             self.last_command = command
         else:
             command = self.last_command
 
         elapsed = time.time() - start
-        if elapsed > AVG_TICK_TIME_SECS:
+        if elapsed > AVG_TICK_TIME_SECS * self.planner.skips:
             command.add_debug_message('SLOW: {:.2f}s'.format(elapsed))
         return command
 
@@ -382,6 +391,7 @@ class Strategy:
             for child in node.children:
                 command.add_debug_line([node.state.me, child.state.me], 'gray')
                 dfs(child)
+
         dfs(self.planner.root)
 
         command.add_debug_message('t={}'.format(len(self.planner.tips)))
