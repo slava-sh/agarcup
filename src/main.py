@@ -7,7 +7,6 @@ import time
 import collections
 
 MAX_EXPANSIONS = 5
-BIG_SPEED = 1000
 NUM_DIRECTIONS = 4 * 1
 SAFETY_MARGIN_FACTOR = 2.5
 SAFETY_MARGIN_PENALTY = -3
@@ -165,10 +164,14 @@ class Command(Point):
     def __init__(self,
                  x,
                  y,
+                 pause=False,
                  debug_messages=None,
                  debug_lines=None,
                  debug_circles=None):
+        x = max(0, min(Config.GAME_WIDTH, x))
+        y = max(0, min(Config.GAME_HEIGHT, y))
         super().__init__(x, y)
+        self.pause = pause
         self.debug_messages = debug_messages or []
         self.debug_lines = debug_lines or []
         self.debug_circles = debug_circles or []
@@ -297,6 +300,10 @@ class Strategy:
             self.debug_tip = tip
 
         command = self.commands.popleft()
+        #if tick % 50 == 0:
+        #    self.command = Command(np.random.randint(0, 600), np.random.randint(0, 600))
+        #command = Command(self.command.x, self.command.y)
+        #self.root = self.new_tip(State(me))
         if self.debug:
 
             def go(node):
@@ -361,9 +368,13 @@ class Strategy:
                 self.root.state.me.dist(me)))
 
             if hasattr(self, 'next_me'):
-                command.add_debug_message('prediction error: {}'.format(
-                    self.next_me.me.dist(me)))
+                e = self.next_me.me.dist(me)
+                command.add_debug_message('prediction error: {:.8f}'.format(e))
+                if e > 1e-6:
+                    command.pause = True
+                    command.add_debug_message('cmd: {!r}'.format(self.last_command))
             self.next_me = self.predict_state(State(me), command)
+            self.last_command = command
 
             for message in self.debug_messages:
                 command.add_debug_message(message)
@@ -388,7 +399,7 @@ class Strategy:
         tip.children = []
         for angle in self.angles:
             me = tip.state.me
-            v = Point.from_polar(BIG_SPEED, me.v.angle() + angle)
+            v = Point.from_polar(Config.SPEED_FACTOR, me.v.angle() + angle)
             command = Command.go_to(me + v)
             child = self.new_tip(
                 state=self.predict_states(tip.state, [command] * self.skips),
@@ -470,8 +481,7 @@ class Strategy:
             new_r = me.r
 
         max_speed = Config.SPEED_FACTOR / math.sqrt(new_m)
-        v = Point(command.x, command.y) - me
-        new_v = me.v + (v.unit() * max_speed - me.v) * (
+        new_v = me.v + ((command - me).unit() * max_speed - me.v) * (
             Config.INERTION_FACTOR / new_m)
         new_v = new_v.with_length(min(max_speed, new_v.length()))
         new_pos = me + new_v
@@ -548,6 +558,7 @@ class Interactor:
         output = dict(
             X=command.x, Y=command.y, Debug='; '.join(command.debug_messages))
         if self.debug:
+            output['Pause'] = command.pause
             output['Draw'] = dict(
                 Lines=[
                     dict(
