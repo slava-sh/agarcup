@@ -200,6 +200,7 @@ class Node:
         self.score = 0
         self.subtree_score_sum = 0
         self.subtree_size = 1
+        self.expandable = True
 
     def compute_tip_score(self, dangers):
         me = self.state.me
@@ -267,7 +268,7 @@ class Strategy:
         i = 0
         while i < MIN_EXPANSIONS_PER_TICK or len(self.tips) < MIN_TIPS:
             i += 1
-            self.expand_tip(self.root, skips)
+            self.expand_child(self.root, skips)
 
         if not self.commands:
             tip = max(self.tips.values(), key=lambda node: node.score)
@@ -281,7 +282,7 @@ class Strategy:
 
             def go(node):
                 for child in node.children:
-                    if child.children:
+                    if child.expandable:
                         command.add_debug_line([node.state.me, child.state.me],
                                                'black', 0.3)
                     go(child)
@@ -324,20 +325,10 @@ class Strategy:
                 command.add_debug_message(message)
         return command
 
-    def expand_tip(self, node, skips):
-        while node.children:
+    def expand_child(self, node, skips):
+        while not node.expandable:
             node = self.select_child(node)
         self.expand_node(node, skips)
-
-    def expand_path(self, node, skips):
-        depth = 0
-        while True:
-            depth += 1
-            is_tip = not node.children
-            self.expand_node(node, skips * depth**2)
-            if is_tip:
-                break
-            node = self.select_child(node)
 
     def select_child(self, node):
         p = np.array([child.subtree_score() for child in node.children])
@@ -351,6 +342,9 @@ class Strategy:
 
     def expand_node(self, node, skips):
         self.remove_tip(node)
+        node.expandable = False
+        delta_score_sum = 0
+        delta_size = 0
         for angle in ANGLES:
             me = node.state.me
             v = Point.from_polar(Config.SPEED_FACTOR, me.v.angle() + angle)
@@ -361,9 +355,8 @@ class Strategy:
                 parent=node,
                 commands=commands)
             node.children.append(child)
-
-        delta_score_sum = sum(child.score for child in node.children)
-        delta_size = len(node.children)
+            delta_score_sum += child.score
+            delta_size += 1
         while node is not None:
             node.subtree_score_sum += delta_score_sum
             node.subtree_size += delta_size
