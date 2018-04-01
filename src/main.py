@@ -90,16 +90,13 @@ class Circle(Point):
 
 
 class Blob(Circle):
-    def __init__(self, x, y, r, m):
+    def __init__(self, id, x, y, r, m):
         super().__init__(x, y, r)
+        self.id = id
         self.m = m
 
 
 class Player(Blob):
-    def __init__(self, id, x, y, r, m):
-        super().__init__(x, y, r, m)
-        self.id = id
-
     def can_eat(self, other):
         if not (self.m > other.m * Config.MASS_EAT_FACTOR):
             return False
@@ -137,20 +134,19 @@ class Me(Player):
 
 
 class Food(Blob):
-    def __init__(self, x, y):
-        super().__init__(x, y, r=Config.FOOD_RADIUS, m=Config.FOOD_MASS)
+    def __init__(self, id, x, y):
+        super().__init__(id, x, y, r=Config.FOOD_RADIUS, m=Config.FOOD_MASS)
 
 
 class Ejection(Food):
-    def __init__(self, x, y):
+    def __init__(self, id, x, y):
         super().__init__(
-            x, y, r=Config.EJECTION_RADIUS, m=Config.EJECTION_MASS)
+            id, x, y, r=Config.EJECTION_RADIUS, m=Config.EJECTION_MASS)
 
 
 class Virus(Blob):
     def __init__(self, id, x, y, m):
-        super().__init__(x, y, r=Config.VIRUS_RADIUS, m=m)
-        self.id = id
+        super().__init__(id, x, y, r=Config.VIRUS_RADIUS, m=m)
 
     def can_hurt(self, other):
         if other.r < self.r or not other.can_burst():
@@ -166,8 +162,7 @@ class Command(Point):
                  debug_messages=None,
                  debug_lines=None,
                  debug_circles=None):
-        self.x = x
-        self.y = y
+        super().__init__(x, y)
         self.debug_messages = debug_messages or []
         self.debug_lines = debug_lines or []
         self.debug_circles = debug_circles or []
@@ -192,12 +187,11 @@ class Node:
         self.parent = parent
         self.command = command
         self.children = children or []
+        self.score = 0
+        self.subtree_score_sum = 0
+        self.subtree_size = 0
 
-        self.score = self.compute_score()
-        self.subtree_score_sum = self.score
-        self.subtree_size = 1
-
-    def compute_score(self):
+    def compute_tip_score(self, dangers):
         me = self.state.me
         score = me.m
 
@@ -209,13 +203,16 @@ class Node:
         if me.y < SAFETY_MARGIN or me.y > Config.GAME_HEIGHT - SAFETY_MARGIN:
             score += SAFETY_MARGIN_PENALTY
 
-        for danger in self.state.dangers:
-            if danger.can_hurt(me):
+        for danger in dangers:
+            if danger.id not in self.state.eaten and danger.can_hurt(me):
                 score = 0
                 break
 
         score = max(0, score)
-        return score
+
+        self.score = score
+        self.subtree_score_sum = self.score
+        self.subtree_size = 1
 
     def subtree_score(self):
         return self.subtree_score_sum / self.subtree_size
@@ -225,10 +222,9 @@ class Node:
 
 
 class State:
-    def __init__(self, me, foods, dangers):
+    def __init__(self, me, eaten=None):
         self.me = me
-        self.foods = foods
-        self.dangers = dangers
+        self.eaten = eaten or set()
 
 
 class Strategy:
@@ -247,8 +243,8 @@ class Strategy:
         my_blobs, food, viruses, enemies = data
         my_blobs.sort(key=lambda b: b.m, reverse=True)
         me = my_blobs[0]
-        foods = food + enemies
-        dangers = viruses + enemies
+        self.foods = food + enemies
+        self.dangers = viruses + enemies
 
         if self.root is not None and self.next_root is not None:
             distance_to_next_root = self.next_root.state.me.qdist(me)
@@ -258,7 +254,7 @@ class Strategy:
 
         if self.root is None or self.root.state.me.qdist(me) > me.r**2:
             self.tips = {}
-            self.root = self.new_tip(State(me, foods, dangers))
+            self.root = self.new_tip(State(me))
 
         for _ in range(MAX_EXPANSIONS):
             tip = self.select_tip(self.root)
@@ -275,25 +271,25 @@ class Strategy:
             max_score = tips[-1].score
             self.logger.debug('tips')
             for node in tips:
-                self.logger.debug('tip %d@%r %.6f', id(node), node.state.me, node.score)
-                #if max_score == min_score:
-                #    command.add_debug_circle(
-                #        Circle(node.state.me.x, node.state.me.y, 1), 'black')
-                #else:
-                #    alpha = (node.score - min_score) / (max_score - min_score)
-                #    command.add_debug_circle(
-                #        Circle(node.state.me.x, node.state.me.y, 1), 'blue', alpha)
-                if node.state.foods:
-                    command.add_debug_circle(
-                        Circle(node.state.me.x, node.state.me.y, 1), 'red')
-                else:
+                self.logger.debug('tip %d@%r %.6f', id(node), node.state.me,
+                                  node.score)
+                if max_score == min_score:
                     command.add_debug_circle(
                         Circle(node.state.me.x, node.state.me.y, 1), 'black')
+                else:
+                    alpha = (node.score - min_score) / (max_score - min_score)
+                    command.add_debug_circle(
+                        Circle(node.state.me.x, node.state.me.y, 1), 'blue',
+                        alpha)
             command.add_debug_circle(
                 Circle(tip.state.me.x, tip.state.me.y, 2), 'red')
             command.add_debug_message('t={}'.format(len(self.tips)))
-            for food in foods:
-                command.add_debug_circle(Circle(food.x, food.y, 5), 'green', 0.5)
+            for food in food:
+                command.add_debug_circle(
+                    Circle(food.x, food.y, food.r + 2), 'green', 0.5)
+            for danger in viruses + enemies:
+                command.add_debug_circle(
+                    Circle(danger.x, danger.y, danger.r + 2), 'red', 0.1)
         return command
 
     def select_tip(self, node):
@@ -314,7 +310,7 @@ class Strategy:
             v = Point.from_polar(BIG_SPEED, me.v.angle() + angle)
             command = Command.go_to(me + v)
             child = self.new_tip(
-                state=predict_states(tip.state, [command] * self.skips),
+                state=self.predict_states(tip.state, [command] * self.skips),
                 parent=tip,
                 command=command)
             tip.children.append(child)
@@ -345,6 +341,7 @@ class Strategy:
 
     def new_tip(self, *args, **kwargs):
         tip = Node(*args, **kwargs)
+        tip.compute_tip_score(self.dangers)
         self.tips[id(tip)] = tip
         return tip
 
@@ -354,48 +351,41 @@ class Strategy:
         except KeyError:
             pass
 
-
-def predict_states(state, commands):
-    for command in commands:
-        state = predict_state(state, command)
-    return state
-
-
-def predict_state(state, command):
-    me = state.me
-    if me.id is None:  # Dead.
+    def predict_states(self, state, commands):
+        for command in commands:
+            state = self.predict_state(state, command)
         return state
 
-    for danger in state.dangers:
-        if danger.can_hurt(me):
-            # Assume we die.
-            return State(
-                Me(id=None, x=me.x, y=me.y, r=0, m=0, v=Point(0, 0)), [], [])
+    def predict_state(self, state, command):
+        me = state.me
+        if me.id is None:  # Dead.
+            return state
 
-    new_m = me.m
-    new_foods = []
-    for food in state.foods:
-        if me.can_eat(food):
-            new_m += food.m
-        else:
-            new_foods.append(food)
+        for danger in self.dangers:
+            if danger.id not in state.eaten and danger.can_hurt(me):
+                # Assume we die.
+                return State(
+                    Me(id=None, x=me.x, y=me.y, r=0, m=0, v=Point(0, 0)))
 
-    if new_m == me.m:
-        new_r = me.r
-    else:
+        new_m = me.m
+        new_eaten = set()
+        for food in self.foods:
+            if food.id not in state.eaten and me.can_eat(food):
+                new_m += food.m
+                new_eaten.add(food.id)
         new_r = Config.RADIUS_FACTOR * new_m
 
-    max_speed = Config.SPEED_FACTOR / math.sqrt(new_m)
-    v = Point(command.x, command.y) - me
-    new_v = me.v + (v.unit() * max_speed - me.v) * (
-        Config.INERTION_FACTOR / new_m)
-    new_v = new_v.with_length(min(max_speed, new_v.length()))
-    new_pos = me + new_v
-    new_pos.x = max(new_r, min(Config.GAME_WIDTH - new_r, new_pos.x))
-    new_pos.y = max(new_r, min(Config.GAME_HEIGHT - new_r, new_pos.y))
-    return State(
-        Me(id=me.id, x=new_pos.x, y=new_pos.y, r=new_r, m=new_m, v=new_v),
-        new_foods, state.dangers)
+        max_speed = Config.SPEED_FACTOR / math.sqrt(new_m)
+        v = Point(command.x, command.y) - me
+        new_v = me.v + (v.unit() * max_speed - me.v) * (
+            Config.INERTION_FACTOR / new_m)
+        new_v = new_v.with_length(min(max_speed, new_v.length()))
+        new_pos = me + new_v
+        new_pos.x = max(new_r, min(Config.GAME_WIDTH - new_r, new_pos.x))
+        new_pos.y = max(new_r, min(Config.GAME_HEIGHT - new_r, new_pos.y))
+        return State(
+            Me(id=me.id, x=new_pos.x, y=new_pos.y, r=new_r, m=new_m, v=new_v),
+            state.eaten.union(new_eaten))
 
 
 def find_tips(roots):
@@ -493,10 +483,13 @@ class Interactor:
         enemies = []
         for obj in data.get('Objects', []):
             t = obj.get('T')
+            x = obj.get('X')
+            y = obj.get('Y')
             if t == 'F':
-                food.append(Food(obj.get('X'), obj.get('Y')))
+                food.append(Food(id='F{:.1f}{:.1f}'.format(x, y), x=x, y=y))
             elif t == 'E':
-                food.append(Ejection(obj.get('X'), obj.get('Y')))
+                food.append(
+                    Ejection(id='E{:.1f}{:.1f}'.format(x, y), x=x, y=y))
             elif t == 'V':
                 viruses.append(
                     Virus(
