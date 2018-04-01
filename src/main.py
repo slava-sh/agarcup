@@ -250,8 +250,7 @@ class Strategy:
             distance_to_next_root = self.next_root.state.me.qdist(me)
             distance_to_root = self.root.state.me.qdist(me)
             if distance_to_next_root < distance_to_root:
-                self.root = self.next_root
-                self.root.parent = None
+                self.advance_root()
 
         if self.root is None or self.root.state.me.qdist(me) > me.r**2:
             self.tips = {}
@@ -266,14 +265,9 @@ class Strategy:
         command = Command(self.next_root.command.x, self.next_root.command.y)
 
         if self.debug:
-
-            def go(node):
-                for child in node.children:
-                    command.add_debug_line([node.state.me, child.state.me],
-                                           'gray')
-                    go(child)
-
-            go(self.root)
+            for node in self.tips.values():
+                command.add_debug_circle(
+                    Circle(node.state.me.x, node.state.me.y, 1), 'gray')
             command.add_debug_circle(
                 Circle(tip.state.me.x, tip.state.me.y, 2), 'red')
             command.add_debug_message('t={}'.format(len(self.tips)))
@@ -316,6 +310,15 @@ class Strategy:
         while node.parent is not None and node.parent.parent is not None:
             node = node.parent
         return node
+
+    def advance_root(self):
+        not_roots = [
+            node for node in self.root.children if node is not self.next_root
+        ]
+        for tip in find_tips(not_roots):
+            self.remove_tip(tip)
+        self.root = self.next_root
+        self.root.parent = None
 
     def new_tip(self, *args, **kwargs):
         tip = Node(*args, **kwargs)
@@ -366,16 +369,18 @@ def predict_state(state, command):
         new_foods, state.dangers)
 
 
-def find_nodes(roots):
-    def go(node, nodes):
-        nodes.append(node)
-        for child in node.children:
-            go(child, nodes)
+def find_tips(roots):
+    def go(node, tips):
+        if node.children:
+            for child in node.children:
+                go(child, tips)
+        else:
+            tips.append(node)
 
-    nodes = []
+    tips = []
     for root in roots:
-        go(root, nodes)
-    return nodes
+        go(root, tips)
+    return tips
 
 
 class TimingStrategy:
