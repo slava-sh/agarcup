@@ -14,6 +14,11 @@ MIN_SKIPS = 5
 MIN_SKIPS_MASS = 40
 MAX_SKIPS = 50
 MAX_SKIPS_MASS = 500
+HOTNESS_STEP = 5
+HOTNESS_PER_TICK = 0.1
+MAX_HOTNESS = 5
+MAX_SPEED_REWARD = 5
+ROOT_EPS = 5
 
 
 class Config:
@@ -191,22 +196,23 @@ class Node:
         self.subtree_score_sum = 0
         self.subtree_size = 1
 
-    def compute_tip_score(self, dangers):
+    def compute_tip_score(self, dangers, hotness):
         me = self.state.me
-        score = me.m
+        score = me.m * 100
 
-        #score += math.sqrt(me.v.length()) / 10
+        #score += hotness[int(me.x / HOTNESS_STEP)][int(me.y / HOTNESS_STEP)]
+        #score += min(MAX_SPEED_REWARD, me.v.length())
 
-        SAFETY_MARGIN = me.r * SAFETY_MARGIN_FACTOR
-        if me.x < SAFETY_MARGIN or me.x > Config.GAME_WIDTH - SAFETY_MARGIN:
-            score += SAFETY_MARGIN_PENALTY
-        if me.y < SAFETY_MARGIN or me.y > Config.GAME_HEIGHT - SAFETY_MARGIN:
-            score += SAFETY_MARGIN_PENALTY
+        #SAFETY_MARGIN = me.r * SAFETY_MARGIN_FACTOR
+        #if me.x < SAFETY_MARGIN or me.x > Config.GAME_WIDTH - SAFETY_MARGIN:
+        #    score += SAFETY_MARGIN_PENALTY
+        #if me.y < SAFETY_MARGIN or me.y > Config.GAME_HEIGHT - SAFETY_MARGIN:
+        #    score += SAFETY_MARGIN_PENALTY
 
-        for danger in dangers:
-            if danger.id not in self.state.eaten and danger.can_hurt(me):
-                score = 0
-                break
+        #for danger in dangers:
+        #    if danger.id not in self.state.eaten and danger.can_hurt(me):
+        #        score = 0
+        #        break
 
         score = max(0, score)
 
@@ -237,21 +243,26 @@ class Strategy:
         self.root = None
         self.next_root = None
         self.skips = MIN_SKIPS
+        self.hotness = None
 
     def tick(self, tick, data):
+        self.update_hotness()
+
         my_blobs, food, viruses, enemies = data
         my_blobs.sort(key=lambda b: b.m, reverse=True)
         me = my_blobs[0]
         self.foods = food + enemies
         self.dangers = viruses + enemies
 
+        #self.root = None
         if self.root is not None and self.next_root is not None:
             distance_to_next_root = self.next_root.state.me.qdist(me)
             distance_to_root = self.root.state.me.qdist(me)
             if distance_to_next_root < distance_to_root:
                 self.advance_root()
 
-        if self.root is None or self.root.state.me.qdist(me) > me.r**2:
+        ROOT_EPS = me.r
+        if self.root is None or self.root.state.me.qdist(me) > ROOT_EPS**2:
             self.tips = {}
             self.root = self.new_tip(State(me))
 
@@ -264,14 +275,21 @@ class Strategy:
         command = Command(self.next_root.command.x, self.next_root.command.y)
 
         if self.debug:
+
+            def go(node):
+                for child in node.children:
+                    if child.children:
+                        command.add_debug_line([node.state.me, child.state.me],
+                                               'black', 0.3)
+                    go(child)
+
+            go(self.root)
+
             tips = list(self.tips.values())
             tips.sort(key=lambda node: node.score)
             min_score = tips[0].score
             max_score = tips[-1].score
-            self.logger.debug('tips')
             for node in tips:
-                self.logger.debug('tip %d@%r %.6f', id(node), node.state.me,
-                                  node.score)
                 if max_score == min_score:
                     command.add_debug_circle(
                         Circle(node.state.me.x, node.state.me.y, 1), 'black')
@@ -280,17 +298,28 @@ class Strategy:
                     command.add_debug_circle(
                         Circle(node.state.me.x, node.state.me.y, 1), 'blue',
                         alpha)
+                #command.add_debug_circle(Circle(node.state.me.x, node.state.me.y, 1), 'red' if node.state.eaten.difference(self.root.state.eaten) else 'black')
+
             command.add_debug_circle(
                 Circle(tip.state.me.x, tip.state.me.y, 2), 'red')
+            node = tip
+            while node.parent is not None:
+                command.add_debug_line([node.state.me, node.parent.state.me], 'black')
+                node = node.parent
+
             for food in food:
                 command.add_debug_circle(
                     Circle(food.x, food.y, food.r + 2), 'green', 0.5)
             for danger in viruses + enemies:
                 command.add_debug_circle(
                     Circle(danger.x, danger.y, danger.r + 2), 'red', 0.1)
-            command.add_debug_message('avg={:.1f}'.format(self.root.subtree_score()))
-            command.add_debug_message('t={}'.format(len(self.tips)))
-            command.add_debug_message('n={}'.format(self.root.subtree_size))
+
+            command.add_debug_message('tips: {}'.format(len(self.tips)))
+            command.add_debug_message('tree: {}'.format(self.root.subtree_size))
+            command.add_debug_message('min: {:.2f}'.format(min_score))
+            command.add_debug_message('max: {:.2f}'.format(max_score))
+            command.add_debug_message('avg: {:.2f}'.format(self.root.subtree_score()))
+            command.add_debug_message('root dist: {:.2f}'.format(self.root.state.me.dist(me)))
         return command
 
     def select_tip(self, node):
@@ -346,7 +375,7 @@ class Strategy:
 
     def new_tip(self, *args, **kwargs):
         tip = Node(*args, **kwargs)
-        tip.compute_tip_score(self.dangers)
+        tip.compute_tip_score(self.dangers, self.hotness)
         self.tips[id(tip)] = tip
         return tip
 
@@ -355,6 +384,15 @@ class Strategy:
             del self.tips[id(tip)]
         except KeyError:
             pass
+
+    def update_hotness(self):
+        if self.hotness is None:
+            self.hotness = [[
+                0 for y in range(Config.GAME_HEIGHT // HOTNESS_STEP + 1)
+            ] for x in range(Config.GAME_WIDTH // HOTNESS_STEP + 1)]
+        for x, _ in enumerate(self.hotness):
+            for y, value in enumerate(self.hotness[x]):
+                self.hotness[x][y] = min(MAX_HOTNESS, value + HOTNESS_PER_TICK)
 
     def predict_states(self, state, commands):
         for command in commands:
@@ -378,7 +416,11 @@ class Strategy:
             if food.id not in state.eaten and me.can_eat(food):
                 new_m += food.m
                 new_eaten.add(food.id)
-        new_r = Config.RADIUS_FACTOR * new_m
+
+        if new_eaten:
+            new_r = Config.RADIUS_FACTOR * math.sqrt(new_m)
+        else:
+            new_r = me.r
 
         max_speed = Config.SPEED_FACTOR / math.sqrt(new_m)
         v = Point(command.x, command.y) - me
@@ -457,7 +499,7 @@ class Interactor:
 
     def print_command(self, command):
         output = dict(
-            X=command.x, Y=command.y, Debug=' '.join(command.debug_messages))
+            X=command.x, Y=command.y, Debug='; '.join(command.debug_messages))
         if self.debug:
             output['Draw'] = dict(
                 Lines=[
