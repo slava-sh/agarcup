@@ -4,10 +4,11 @@ import math
 import os
 import numpy as np
 import time
+import collections
 
 MAX_EXPANSIONS = 5
 BIG_SPEED = 1000
-NUM_DIRECTIONS = 4 * 2
+NUM_DIRECTIONS = 4 * 1
 SAFETY_MARGIN_FACTOR = 2.5
 SAFETY_MARGIN_PENALTY = -3
 MIN_SKIPS = 5
@@ -18,7 +19,7 @@ HOTNESS_STEP = 5
 HOTNESS_PER_TICK = 0.1
 MAX_HOTNESS = 5
 MAX_SPEED_REWARD = 5
-ROOT_EPS = 5
+ROOT_EPS = 0.5
 
 
 class Config:
@@ -242,8 +243,10 @@ class Strategy:
         ]
         self.root = None
         self.next_root = None
+        self.tips = {}
         self.skips = MIN_SKIPS
         self.hotness = None
+        self.commands = collections.deque([])
 
     def tick(self, tick, data):
         self.update_hotness()
@@ -254,26 +257,37 @@ class Strategy:
         self.foods = food + enemies
         self.dangers = viruses + enemies
 
-        #self.root = None
-        if self.root is not None and self.next_root is not None:
-            distance_to_next_root = self.next_root.state.me.qdist(me)
-            distance_to_root = self.root.state.me.qdist(me)
-            if distance_to_next_root < distance_to_root:
-                self.advance_root()
+        self.skips = int(
+            max(MIN_SKIPS,
+                min(MAX_SKIPS, MIN_SKIPS + (me.m - MIN_SKIPS_MASS) *
+                    (MAX_SKIPS - MIN_SKIPS) /
+                    (MAX_SKIPS_MASS - MIN_SKIPS_MASS))))
 
-        ROOT_EPS = me.r
-        if self.root is None or self.root.state.me.qdist(me) > ROOT_EPS**2:
-            self.tips = {}
+        if (not self.commands and self.root is not None
+                and self.next_root is not None
+                and self.next_root.state.me.qdist(me) <
+                self.root.state.me.qdist(me)):
+            self.advance_root()
+
+        if self.root is None or (not self.commands and
+                                 self.root.state.me.qdist(me) > ROOT_EPS**2):
             self.root = self.new_tip(State(me))
+            self.next_root = None
+            self.tips = {}
 
         for _ in range(MAX_EXPANSIONS):
             tip = self.select_tip(self.root)
             self.expand_tip(tip)
 
-        tip = max(self.tips.values(), key=lambda node: node.score)
-        self.next_root = self.get_next_root(tip)
-        command = Command(self.next_root.command.x, self.next_root.command.y)
+        if not self.commands:
+            tip = max(self.tips.values(), key=lambda node: node.score)
+            self.next_root = self.get_next_root(tip)
+            for _ in range(self.skips):
+                self.commands.append(
+                    Command(self.next_root.command.x,
+                            self.next_root.command.y))
 
+        command = self.commands.popleft()
         if self.debug:
 
             def go(node):
@@ -301,10 +315,17 @@ class Strategy:
                 #command.add_debug_circle(Circle(node.state.me.x, node.state.me.y, 1), 'red' if node.state.eaten.difference(self.root.state.eaten) else 'black')
 
             command.add_debug_circle(
+                Circle(self.root.state.me.x, self.root.state.me.y, 2), 'red')
+            if self.next_root is not None:
+                command.add_debug_circle(
+                    Circle(self.next_root.state.me.x,
+                           self.next_root.state.me.y, 2), 'green')
+            command.add_debug_circle(
                 Circle(tip.state.me.x, tip.state.me.y, 2), 'red')
             node = tip
             while node.parent is not None:
-                command.add_debug_line([node.state.me, node.parent.state.me], 'black')
+                command.add_debug_line([node.state.me, node.parent.state.me],
+                                       'black')
                 node = node.parent
 
             for food in food:
@@ -314,12 +335,16 @@ class Strategy:
                 command.add_debug_circle(
                     Circle(danger.x, danger.y, danger.r + 2), 'red', 0.1)
 
+            command.add_debug_message('skips: {}'.format(self.skips))
             command.add_debug_message('tips: {}'.format(len(self.tips)))
-            command.add_debug_message('tree: {}'.format(self.root.subtree_size))
+            command.add_debug_message('tree: {}'.format(
+                self.root.subtree_size))
             command.add_debug_message('min: {:.2f}'.format(min_score))
             command.add_debug_message('max: {:.2f}'.format(max_score))
-            command.add_debug_message('avg: {:.2f}'.format(self.root.subtree_score()))
-            command.add_debug_message('root dist: {:.2f}'.format(self.root.state.me.dist(me)))
+            command.add_debug_message('avg: {:.2f}'.format(
+                self.root.subtree_score()))
+            command.add_debug_message('root dist: {:.2f}'.format(
+                self.root.state.me.dist(me)))
         return command
 
     def select_tip(self, node):
