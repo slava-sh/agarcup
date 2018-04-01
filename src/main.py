@@ -115,12 +115,10 @@ class Player(Blob):
         return min_r < self.r
 
     def can_see(self, other):
-        angle = self.v.angle()
-        x = self.x + math.cos(angle) * Config.VIS_SHIFT
-        y = self.y + math.sin(angle) * Config.VIS_SHIFT
+        p = self + Point.from_polar(Config.VIS_SHIFT, self.angle())
         vision_radius = self.r * Config.VIS_FACTOR  # TODO: Not always true.
         max_dist = vision_radius + other.r
-        return other.qdist(Point(x, y)) < max_dist**2
+        return other.qdist(p) < max_dist**2
 
     def can_burst(self):
         # TODO
@@ -142,13 +140,22 @@ class Enemy(Player):
 
 
 class Me(Player):
-    def __init__(self, id, x, y, m, v, is_fast=False, r=None, ttf=None):
+    def __init__(self, id, x, y, m, v, is_fast=None, r=None, ttf=None):
         if r is None:
             r = Config.RADIUS_FACTOR * math.sqrt(m)
         super().__init__(id, x, y, r, m)
         self.v = v
-        self.is_fast = is_fast
+        if is_fast is None:
+            self.is_fast = self.speed() > self.max_speed()
+        else:
+            self.is_fast = is_fast
         self.ttf = ttf or 0
+
+    def speed(self):
+        return self.v.length()
+
+    def angle(self):
+        return self.v.angle()
 
 
 class Food(Blob):
@@ -225,7 +232,7 @@ class Node:
 
     def compute_blob_score(self, me, dangers):
         score = me.m
-        score += me.v.length() * SPEED_REWARD_FACTOR
+        score += me.speed() * SPEED_REWARD_FACTOR
 
         SAFETY_MARGIN = me.r * SAFETY_MARGIN_FACTOR
         if me.x < SAFETY_MARGIN or me.x > Config.GAME_WIDTH - SAFETY_MARGIN:
@@ -373,7 +380,7 @@ class Strategy:
         delta_size = 0
         for angle in EXPAND_ANGLES:
             me = node.state.me()
-            v = Point.from_polar(Config.SPEED_FACTOR, me.v.angle() + angle)
+            v = Point.from_polar(Config.SPEED_FACTOR, me.angle() + angle)
             command = Command.go_to(me + v)
             commands = [command] * skips
             child = self.new_tip(
@@ -391,7 +398,7 @@ class Strategy:
     def add_expandable_nodes(self, skips):
         me = self.root.state.me()
         for angle in DISCOVERY_ANGLES:
-            v = Point.from_polar(Config.SPEED_FACTOR, me.v.angle() + angle)
+            v = Point.from_polar(Config.SPEED_FACTOR, me.angle() + angle)
             node = self.root
             depth = 0
             while (me.can_see(node.state.me())
@@ -456,7 +463,7 @@ class Strategy:
         for me in my_blobs:
             max_speed = me.max_speed()
             if me.is_fast:
-                speed = me.v.length()
+                speed = me.speed()
                 new_fast = speed > max_speed
                 if new_fast:
                     speed = max(max_speed, speed - Config.VISCOSITY)
@@ -499,7 +506,7 @@ class Strategy:
 
     def split(self, me):
         m = me.m / 2
-        v = Point.from_polar(Config.SPLIT_START_SPEED, me.v.angle())
+        v = Point.from_polar(Config.SPLIT_START_SPEED, me.angle())
         me1 = Me(
             id=me.id + '+1',  # TODO: Compute correct ids.
             x=me.x,
