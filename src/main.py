@@ -7,7 +7,7 @@ import time
 import collections
 
 ROOT_EPS = 1
-MAX_EXPANSIONS = 5
+MAX_EXPANSIONS = 2
 NUM_DIRECTIONS = 4
 
 INERTION_FOR_SKIPS = 10
@@ -20,10 +20,6 @@ SPEED_REWARD_FACTOR = 0.01
 
 SAFETY_MARGIN_FACTOR = 2.5
 SAFETY_MARGIN_PENALTY = -3
-
-HOTNESS_STEP = 5
-HOTNESS_PER_TICK = 0.1
-MAX_HOTNESS = 5
 
 
 class Config:
@@ -205,11 +201,10 @@ class Node:
         self.subtree_score_sum = 0
         self.subtree_size = 1
 
-    def compute_tip_score(self, dangers, hotness):
+    def compute_tip_score(self, dangers):
         me = self.state.me
         score = me.m
 
-        #score += hotness[int(me.x / HOTNESS_STEP)][int(me.y / HOTNESS_STEP)]
         score += me.v.length() * SPEED_REWARD_FACTOR
 
         SAFETY_MARGIN = me.r * SAFETY_MARGIN_FACTOR
@@ -253,14 +248,11 @@ class Strategy:
         self.next_root = None
         self.tips = {}
         self.skips = None
-        self.hotness = None
         self.commands = collections.deque([])
 
     def tick(self, tick, data):
         if self.debug:
             self.debug_messages = []
-
-        self.update_hotness()
 
         my_blobs, food, viruses, enemies = data
         my_blobs.sort(key=lambda b: b.m, reverse=True)
@@ -408,7 +400,7 @@ class Strategy:
 
     def new_tip(self, *args, **kwargs):
         tip = Node(*args, **kwargs)
-        tip.compute_tip_score(self.dangers, self.hotness)
+        tip.compute_tip_score(self.dangers)
         self.tips[id(tip)] = tip
         return tip
 
@@ -417,15 +409,6 @@ class Strategy:
             del self.tips[id(tip)]
         except KeyError:
             pass
-
-    def update_hotness(self):
-        if self.hotness is None:
-            self.hotness = [[
-                0 for y in range(Config.GAME_HEIGHT // HOTNESS_STEP + 1)
-            ] for x in range(Config.GAME_WIDTH // HOTNESS_STEP + 1)]
-        for x, _ in enumerate(self.hotness):
-            for y, value in enumerate(self.hotness[x]):
-                self.hotness[x][y] = min(MAX_HOTNESS, value + HOTNESS_PER_TICK)
 
     def predict_states(self, state, commands):
         for command in commands:
