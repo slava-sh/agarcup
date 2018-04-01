@@ -300,10 +300,6 @@ class Strategy:
             self.debug_tip = tip
 
         command = self.commands.popleft()
-        #if tick % 50 == 0:
-        #    self.command = Command(np.random.randint(0, 600), np.random.randint(0, 600))
-        #command = Command(self.command.x, self.command.y)
-        #self.root = self.new_tip(State(me))
         if self.debug:
 
             def go(node):
@@ -462,31 +458,29 @@ class Strategy:
         if me.id is None:  # Dead.
             return state
 
+        max_speed = Config.SPEED_FACTOR / math.sqrt(me.m)
+        new_v = me.v + ((command - me).unit() * max_speed - me.v) * (
+            Config.INERTION_FACTOR / me.m)
+        new_v = new_v.with_length(min(max_speed, new_v.length()))
+        new_pos = me + new_v
+        new_pos.x = max(me.r, min(Config.GAME_WIDTH - me.r, new_pos.x))
+        new_pos.y = max(me.r, min(Config.GAME_HEIGHT - me.r, new_pos.y))
+
+        new_m = me.m
+        new_r = me.r
+        new_eaten = set()
+        for food in self.foods:
+            if food.id not in state.eaten and me.can_eat(food):
+                new_eaten.add(food.id)
+                new_m += food.m
+                new_r = Config.RADIUS_FACTOR * math.sqrt(new_m)
+
         for danger in self.dangers:
             if danger.id not in state.eaten and danger.can_hurt(me):
                 # Assume we die.
                 return State(
                     Me(id=None, x=me.x, y=me.y, r=0, m=0, v=Point(0, 0)))
 
-        new_m = me.m
-        new_eaten = set()
-        for food in self.foods:
-            if food.id not in state.eaten and me.can_eat(food):
-                new_m += food.m
-                new_eaten.add(food.id)
-
-        if new_eaten:
-            new_r = Config.RADIUS_FACTOR * math.sqrt(new_m)
-        else:
-            new_r = me.r
-
-        max_speed = Config.SPEED_FACTOR / math.sqrt(new_m)
-        new_v = me.v + ((command - me).unit() * max_speed - me.v) * (
-            Config.INERTION_FACTOR / new_m)
-        new_v = new_v.with_length(min(max_speed, new_v.length()))
-        new_pos = me + new_v
-        new_pos.x = max(new_r, min(Config.GAME_WIDTH - new_r, new_pos.x))
-        new_pos.y = max(new_r, min(Config.GAME_HEIGHT - new_r, new_pos.y))
         return State(
             Me(id=me.id, x=new_pos.x, y=new_pos.y, r=new_r, m=new_m, v=new_v),
             state.eaten.union(new_eaten))
