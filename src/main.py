@@ -8,8 +8,9 @@ import collections
 
 ROOT_EPS = 1
 MAX_EXPANSIONS = 5
-NUM_DIRECTIONS = 4 * 1
+NUM_DIRECTIONS = 4
 
+INERTION_FOR_SKIPS = 10
 MIN_SKIPS = 5
 MIN_SKIPS_MASS = 40
 MAX_SKIPS = 100
@@ -251,7 +252,7 @@ class Strategy:
         self.root = None
         self.next_root = None
         self.tips = {}
-        self.skips = MIN_SKIPS
+        self.skips = None
         self.hotness = None
         self.commands = collections.deque([])
 
@@ -271,7 +272,8 @@ class Strategy:
             max(MIN_SKIPS,
                 min(MAX_SKIPS, MIN_SKIPS + (me.m - MIN_SKIPS_MASS) *
                     (MAX_SKIPS - MIN_SKIPS) /
-                    (MAX_SKIPS_MASS - MIN_SKIPS_MASS))))
+                    (MAX_SKIPS_MASS - MIN_SKIPS_MASS))) * math.sqrt(
+                        INERTION_FOR_SKIPS / Config.INERTION_FACTOR))
 
         if (not self.commands and self.root is not None
                 and self.next_root is not None
@@ -290,7 +292,7 @@ class Strategy:
             self.tips = {}
 
         for _ in range(MAX_EXPANSIONS):
-            tip = self.select_tip(self.root)
+            tip = self.select_tip(self.next_root or self.root)
             self.expand_tip(tip)
 
         if not self.commands:
@@ -314,19 +316,8 @@ class Strategy:
 
             go(self.root)
 
-            tips = list(self.tips.values())
-            tips.sort(key=lambda node: node.score)
-            min_score = tips[0].score
-            max_score = tips[-1].score
-            for node in tips:
-                if max_score == min_score:
-                    command.add_debug_circle(
-                        Circle(node.state.me.x, node.state.me.y, 1), 'black')
-                else:
-                    alpha = (node.score - min_score) / (max_score - min_score)
-                    command.add_debug_circle(
-                        Circle(node.state.me.x, node.state.me.y, 1), 'blue',
-                        alpha)
+            for tip in self.tips.values():
+                command.add_debug_circle(Circle(tip.state.me.x, tip.state.me.y, 1), 'black', 0.3)
 
             command.add_debug_circle(
                 Circle(self.root.state.me.x, self.root.state.me.y,
@@ -358,8 +349,6 @@ class Strategy:
             command.add_debug_message('tips: {}'.format(len(self.tips)))
             command.add_debug_message('tree: {}'.format(
                 self.root.subtree_size))
-            command.add_debug_message('min: {:.2f}'.format(min_score))
-            command.add_debug_message('max: {:.2f}'.format(max_score))
             command.add_debug_message('avg: {:.2f}'.format(
                 self.root.subtree_score()))
 
@@ -482,7 +471,8 @@ class Strategy:
             command.add_debug_message('prediction error: {:.8f}'.format(e))
             if e > 1e-6:
                 command.pause = True
-                command.add_debug_message('cmd: {!r}'.format(self.last_command))
+                command.add_debug_message('cmd: {!r}'.format(
+                    self.last_command))
         self.next_me = self.predict_state(State(me), command)
         self.last_command = command
 
