@@ -13,13 +13,13 @@ SAFETY_MARGIN_FACTOR = 2.5
 SAFETY_MARGIN_PENALTY = -3
 MIN_SKIPS = 5
 MIN_SKIPS_MASS = 40
-MAX_SKIPS = 50
+MAX_SKIPS = 100
 MAX_SKIPS_MASS = 500
 HOTNESS_STEP = 5
 HOTNESS_PER_TICK = 0.1
 MAX_HOTNESS = 5
 MAX_SPEED_REWARD = 5
-ROOT_EPS = 0.5
+ROOT_EPS = 1
 
 
 class Config:
@@ -249,6 +249,9 @@ class Strategy:
         self.commands = collections.deque([])
 
     def tick(self, tick, data):
+        if self.debug:
+            self.debug_messages = []
+
         self.update_hotness()
 
         my_blobs, food, viruses, enemies = data
@@ -271,6 +274,11 @@ class Strategy:
 
         if self.root is None or (not self.commands and
                                  self.root.state.me.qdist(me) > ROOT_EPS**2):
+            if self.debug:
+                self.debug_messages.append('RESET ROOT')
+                if self.root is not None:
+                    self.debug_messages.append('dist = {}'.format(
+                        self.root.state.me.dist(me)))
             self.root = self.new_tip(State(me))
             self.next_root = None
             self.tips = {}
@@ -286,6 +294,7 @@ class Strategy:
                 self.commands.append(
                     Command(self.next_root.command.x,
                             self.next_root.command.y))
+            self.debug_tip = tip
 
         command = self.commands.popleft()
         if self.debug:
@@ -315,14 +324,18 @@ class Strategy:
                 #command.add_debug_circle(Circle(node.state.me.x, node.state.me.y, 1), 'red' if node.state.eaten.difference(self.root.state.eaten) else 'black')
 
             command.add_debug_circle(
-                Circle(self.root.state.me.x, self.root.state.me.y, 2), 'red')
+                Circle(self.root.state.me.x, self.root.state.me.y,
+                       self.root.state.me.r), 'pink', 0.1)
             if self.next_root is not None:
                 command.add_debug_circle(
                     Circle(self.next_root.state.me.x,
-                           self.next_root.state.me.y, 2), 'green')
+                           self.next_root.state.me.y,
+                           self.next_root.state.me.r), 'green', 0.1)
+
             command.add_debug_circle(
-                Circle(tip.state.me.x, tip.state.me.y, 2), 'red')
-            node = tip
+                Circle(self.debug_tip.state.me.x, self.debug_tip.state.me.y,
+                       2), 'red')
+            node = self.debug_tip
             while node.parent is not None:
                 command.add_debug_line([node.state.me, node.parent.state.me],
                                        'black')
@@ -336,6 +349,7 @@ class Strategy:
                     Circle(danger.x, danger.y, danger.r + 2), 'red', 0.1)
 
             command.add_debug_message('skips: {}'.format(self.skips))
+            command.add_debug_message('queue: {}'.format(len(self.commands)))
             command.add_debug_message('tips: {}'.format(len(self.tips)))
             command.add_debug_message('tree: {}'.format(
                 self.root.subtree_size))
@@ -345,6 +359,14 @@ class Strategy:
                 self.root.subtree_score()))
             command.add_debug_message('root dist: {:.2f}'.format(
                 self.root.state.me.dist(me)))
+
+            if hasattr(self, 'next_me'):
+                command.add_debug_message('prediction error: {}'.format(
+                    self.next_me.me.dist(me)))
+            self.next_me = self.predict_state(State(me), command)
+
+            for message in self.debug_messages:
+                command.add_debug_message(message)
         return command
 
     def select_tip(self, node):
