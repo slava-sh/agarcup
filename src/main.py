@@ -240,7 +240,6 @@ class Strategy:
         self.logger = logger
         self.debug = debug
         self.root = None
-        self.next_root = None
         self.tips = {}
         self.commands = collections.deque([])
 
@@ -254,12 +253,6 @@ class Strategy:
         self.foods = food + enemies
         self.dangers = viruses + enemies
 
-        if (not self.commands and self.root is not None
-                and self.next_root is not None
-                and self.next_root.state.me.qdist(me) <
-                self.root.state.me.qdist(me)):
-            self.advance_root()
-
         if self.root is None or (not self.commands and
                                  self.root.state.me.qdist(me) > ROOT_EPS**2):
             if self.debug and self.root is not None:
@@ -267,18 +260,17 @@ class Strategy:
                 self.debug_messages.append('dist = {:.2f}'.format(
                     self.root.state.me.dist(me)))
             self.root = self.new_tip(State(me))
-            self.next_root = None
             self.tips = {}
 
         skips = max(1, int(SKIP_DISTANCE / me.max_speed()))
         for _ in range(MAX_EXPANSIONS):
-            tip, depth = self.select_tip(self.next_root or self.root)
+            tip, depth = self.select_tip(self.root)
             self.expand_tip(tip, skips)
 
         if not self.commands:
             tip = max(self.tips.values(), key=lambda node: node.score)
-            self.next_root = self.get_next_root(tip)
-            for command in self.next_root.commands:
+            self.advance_root(self.get_next_root(tip))
+            for command in self.root.commands:
                 self.commands.append(Command(command.x, command.y))
             self.debug_tip = tip
 
@@ -299,12 +291,7 @@ class Strategy:
 
             command.add_debug_circle(
                 Circle(self.root.state.me.x, self.root.state.me.y,
-                       self.root.state.me.r), 'pink', 0.1)
-            if self.next_root is not None:
-                command.add_debug_circle(
-                    Circle(self.next_root.state.me.x,
-                           self.next_root.state.me.y,
-                           self.next_root.state.me.r), 'green', 0.1)
+                       self.root.state.me.r), 'green', 0.1)
 
             command.add_debug_circle(
                 Circle(self.debug_tip.state.me.x, self.debug_tip.state.me.y,
@@ -379,13 +366,13 @@ class Strategy:
             node = node.parent
         return node
 
-    def advance_root(self):
+    def advance_root(self, next_root):
         not_roots = [
-            node for node in self.root.children if node is not self.next_root
+            node for node in self.root.children if node is not next_root
         ]
         for tip in find_tips(not_roots):
             self.remove_tip(tip)
-        self.root = self.next_root
+        self.root = next_root
         self.root.parent = None
 
     def new_tip(self, *args, **kwargs):
