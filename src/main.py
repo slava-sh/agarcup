@@ -16,7 +16,6 @@ MIN_SKIPS = 5
 MIN_SKIPS_MASS = 40
 MAX_SKIPS = 50
 MAX_SKIPS_MASS = 500
-DANGER_PENALTY = -1000
 
 
 class Config:
@@ -195,29 +194,40 @@ class GoTo(Command):
 class Node:
     def __init__(self,
                  state,
-                 root=None,
-                 command=None,
                  parent=None,
+                 command=None,
                  children=None):
         self.state = state
-        self.command = command
         self.parent = parent
+        self.command = command
         self.children = children or []
 
-        me = state.me
-        self.score = me.m
+        self.score = self.compute_score()
+        self.subtree_score_sum = self.score
+        self.subtree_size = 1
 
-        self.score += math.sqrt(me.v.length())
+    def compute_score(self):
+        me = self.state.me
+        score = me.m
 
-        for danger in state.dangers:
-            if danger.can_hurt(me):
-                self.score += DANGER_PENALTY
+        score += math.sqrt(me.v.length())
 
         SAFETY_MARGIN = me.r * SAFETY_MARGIN_FACTOR
         if me.x < SAFETY_MARGIN or me.x > Config.GAME_WIDTH - SAFETY_MARGIN:
-            self.score += SAFETY_MARGIN_PENALTY
+            score += SAFETY_MARGIN_PENALTY
         if me.y < SAFETY_MARGIN or me.y > Config.GAME_HEIGHT - SAFETY_MARGIN:
-            self.score += SAFETY_MARGIN_PENALTY
+            score += SAFETY_MARGIN_PENALTY
+
+        for danger in self.state.dangers:
+            if danger.can_hurt(me):
+                score = 0
+                break
+
+        score = max(0, score)
+        return score
+
+    def subtree_score(self):
+        return self.subtree_score_sum / self.subtree_size
 
     def __repr__(self):
         return '{}{!r}'.format(id(self), self.state.me)
@@ -248,35 +258,44 @@ class Strategy:
         foods = food + enemies
         dangers = viruses + enemies
 
-        self.skips = int(
-            max(MIN_SKIPS,
-                min(MAX_SKIPS, MIN_SKIPS + (me.m - MIN_SKIPS_MASS) *
-                    (MAX_SKIPS - MIN_SKIPS) /
-                    (MAX_SKIPS_MASS - MIN_SKIPS_MASS))))
-
         self.tips = {}
         self.root = self.new_tip(State(me, foods, dangers))
 
-        seen = set()
-        frontier = collections.deque([self.root])
-        while frontier:
-            node = frontier.popleft()
-            for tip in self.expand(node):
-                xy = (int(tip.state.me.x / me.r), int(tip.state.me.y / me.r))
-                if xy in seen or not me.can_see(tip.state.me) or tip.score < 0:
-                    continue
-                seen.add(xy)
-                frontier.append(tip)
-
-        for _ in range(MAX_PROMISING_EXPANSIONS):
-            node = self.select_node(me)
-            if not node:
-                break
-            self.expand(node)
+        tip = self.select_tip(self.root)
+        self.expand_tip(tip)
 
         tip = max(self.tips.values(), key=lambda node: node.score)
-        self.next_root = self.get_next_root(tip)
-        return self.next_root.command
+        next_root = self.get_next_root(tip)
+        return next_root.command
+
+    def select_tip(self, node):
+        while node.children:
+            node = max(node.children, key=lambda node: node.subtree_score())
+        return node
+
+    def expand_tip(self, tip):
+        if tip.children:
+            raise Exception('not a tip')
+
+        tip.children = []
+        for angle in self.angles:
+            me = tip.state.me
+            v = Point.from_polar(BIG_SPEED, me.v.angle() + angle)
+            command = GoTo(me + v)
+            child = self.new_tip(
+                    state=predict_states(tip.state, [command] * self.skips),
+                    parent=tip,
+                    command=command)
+            tip.children.append(child)
+        self.remove_tip(tip)
+
+        delta_score_sum = sum(child.score for child in tip.children)
+        delta_size = len(tip.children)
+        node = tip
+        while node is not None:
+            node.subtree_score_sum += delta_score_sum
+            node.subtree_size += delta_size
+            node = node.parent
 
     def get_next_root(self, tip):
         node = tip
@@ -284,25 +303,8 @@ class Strategy:
             node = node.parent
         return node
 
-    def select_node(self, me):
-        return max(
-            (tip for tip in self.tips.values() if me.can_see(tip.state.me)),
-            key=lambda node: node.score,
-            default=None)
-
-    def discover_nodes(self, roots):
-        def go(node, nodes):
-            nodes.append(node)
-            for child in node.children:
-                go(child, nodes)
-
-        nodes = []
-        for root in roots:
-            go(root, nodes)
-        return nodes
-
     def new_tip(self, *args, **kwargs):
-        tip = Node(*args, **kwargs, root=self.root)
+        tip = Node(*args, **kwargs)
         self.tips[id(tip)] = tip
         return tip
 
@@ -312,58 +314,55 @@ class Strategy:
         except KeyError:
             pass
 
-    def expand(self, node):
-        if node.children:
-            raise ValueError('node already expanded')
-        node.children = []
-        for angle in self.angles:
-            me = node.state.me
-            v = Point.from_polar(BIG_SPEED, me.v.angle() + angle)
-            command = GoTo(me + v)
-            node.children.append(
-                self.new_tip(
-                    self.predict_moves(node.state, [command] * self.skips),
-                    command=command,
-                    parent=node))
-        self.remove_tip(node)
-        return node.children
 
-    def predict_moves(self, state, commands):
-        for command in commands:
-            state = self.predict_move(state, command)
+def predict_states(state, commands):
+    for command in commands:
+        state = predict_state(state, command)
+    return state
+
+
+def predict_state(state, command):
+    me = state.me
+    if me.id is None:  # Dead.
         return state
 
-    def predict_move(self, state, command):
-        me = state.me
-        if me.id is None:  # Dead.
-            return state
+    for danger in state.dangers:
+        if danger.can_hurt(me):
+            return State(
+                Me(id=None, x=me.x, y=me.y, r=0, m=0, v=Point(0, 0)), [],
+                [])
 
-        v = Point(command.x, command.y) - me
+    new_m = me.m
+    new_foods = []
+    for food in state.foods:
+        if me.can_eat(food):
+            new_m += food.m
+        else:
+            new_foods.append(food)
 
-        for danger in state.dangers:
-            if danger.can_hurt(me):
-                return State(
-                    Me(id=None, x=me.x, y=me.y, r=0, m=0, v=Point(0, 0)), [],
-                    [])
+    max_speed = Config.SPEED_FACTOR / math.sqrt(new_m)
+    v = Point(command.x, command.y) - me
+    new_v = me.v + (v.unit() * max_speed - me.v) * (
+        Config.INERTION_FACTOR / new_m)
+    new_v = new_v.with_length(min(max_speed, new_v.length()))
+    new_pos = me + new_v
+    new_pos.x = max(me.r, min(Config.GAME_WIDTH - me.r, new_pos.x))
+    new_pos.y = max(me.r, min(Config.GAME_HEIGHT - me.r, new_pos.y))
+    return State(
+        Me(id=me.id, x=new_pos.x, y=new_pos.y, r=me.r, m=new_m, v=new_v),
+        new_foods, state.dangers)
 
-        new_m = me.m
-        new_foods = []
-        for food in state.foods:
-            if me.can_eat(food):
-                new_m += food.m
-            else:
-                new_foods.append(food)
 
-        max_speed = Config.SPEED_FACTOR / math.sqrt(new_m)
-        new_v = me.v + (v.unit() * max_speed - me.v) * (
-            Config.INERTION_FACTOR / new_m)
-        new_v = new_v.with_length(min(max_speed, new_v.length()))
-        new_pos = me + new_v
-        new_pos.x = max(me.r, min(Config.GAME_WIDTH - me.r, new_pos.x))
-        new_pos.y = max(me.r, min(Config.GAME_HEIGHT - me.r, new_pos.y))
-        return State(
-            Me(id=me.id, x=new_pos.x, y=new_pos.y, r=me.r, m=new_m, v=new_v),
-            new_foods, state.dangers)
+def find_nodes(roots):
+    def go(node, nodes):
+        nodes.append(node)
+        for child in node.children:
+            go(child, nodes)
+
+    nodes = []
+    for root in roots:
+        go(root, nodes)
+    return nodes
 
 
 class TimingStrategy:
@@ -464,7 +463,7 @@ class Interactor:
                         m=obj.get('M'),
                         r=obj.get('R')))
             else:
-                raise ValueError('unknown object type')
+                raise Exception('unknown object type')
         return (my_blobs, food, viruses, enemies)
 
 
