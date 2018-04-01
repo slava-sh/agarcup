@@ -27,6 +27,7 @@ class Config:
     EJECTION_RADIUS = 4.0
     EJECTION_MASS = 15.0
     MASS_EAT_FACTOR = 1.2
+    RADIUS_FACTOR = 2.0
     DIAM_EAT_FACTOR = 2 / 3
     VIS_FACTOR = 4.0
     VIS_FACTOR_FR = 2.5
@@ -102,8 +103,11 @@ class Player(Blob):
     def can_eat(self, other):
         if not (self.m > other.m * Config.MASS_EAT_FACTOR):
             return False
-        max_dist = self.r + other.r - other.r * 2 * Config.DIAM_EAT_FACTOR
-        return self.qdist(other) < max_dist**2
+        # max_dist = self.r + other.r - other.r * 2 * Config.DIAM_EAT_FACTOR
+        # return self.qdist(other) < max_dist**2
+        dist = self.dist(other)
+        min_r = dist - other.r + other.r * 2 * Config.DIAM_EAT_FACTOR
+        return min_r < self.r
 
     def can_see(self, other):
         angle = self.v.angle()
@@ -197,7 +201,7 @@ class Node:
         me = self.state.me
         score = me.m
 
-        #score += math.sqrt(me.v.length())
+        #score += math.sqrt(me.v.length()) / 10
 
         SAFETY_MARGIN = me.r * SAFETY_MARGIN_FACTOR
         if me.x < SAFETY_MARGIN or me.x > Config.GAME_WIDTH - SAFETY_MARGIN:
@@ -272,16 +276,24 @@ class Strategy:
             self.logger.debug('tips')
             for node in tips:
                 self.logger.debug('tip %d@%r %.6f', id(node), node.state.me, node.score)
-                if max_score == min_score:
+                #if max_score == min_score:
+                #    command.add_debug_circle(
+                #        Circle(node.state.me.x, node.state.me.y, 1), 'black')
+                #else:
+                #    alpha = (node.score - min_score) / (max_score - min_score)
+                #    command.add_debug_circle(
+                #        Circle(node.state.me.x, node.state.me.y, 1), 'blue', alpha)
+                if node.state.foods:
+                    command.add_debug_circle(
+                        Circle(node.state.me.x, node.state.me.y, 1), 'red')
+                else:
                     command.add_debug_circle(
                         Circle(node.state.me.x, node.state.me.y, 1), 'black')
-                else:
-                    alpha = (node.score - min_score) / (max_score - min_score)
-                    command.add_debug_circle(
-                        Circle(node.state.me.x, node.state.me.y, 3), 'blue', alpha)
             command.add_debug_circle(
                 Circle(tip.state.me.x, tip.state.me.y, 2), 'red')
             command.add_debug_message('t={}'.format(len(self.tips)))
+            for food in foods:
+                command.add_debug_circle(Circle(food.x, food.y, 5), 'green', 0.5)
         return command
 
     def select_tip(self, node):
@@ -356,6 +368,7 @@ def predict_state(state, command):
 
     for danger in state.dangers:
         if danger.can_hurt(me):
+            # Assume we die.
             return State(
                 Me(id=None, x=me.x, y=me.y, r=0, m=0, v=Point(0, 0)), [], [])
 
@@ -367,16 +380,21 @@ def predict_state(state, command):
         else:
             new_foods.append(food)
 
+    if new_m == me.m:
+        new_r = me.r
+    else:
+        new_r = Config.RADIUS_FACTOR * new_m
+
     max_speed = Config.SPEED_FACTOR / math.sqrt(new_m)
     v = Point(command.x, command.y) - me
     new_v = me.v + (v.unit() * max_speed - me.v) * (
         Config.INERTION_FACTOR / new_m)
     new_v = new_v.with_length(min(max_speed, new_v.length()))
     new_pos = me + new_v
-    new_pos.x = max(me.r, min(Config.GAME_WIDTH - me.r, new_pos.x))
-    new_pos.y = max(me.r, min(Config.GAME_HEIGHT - me.r, new_pos.y))
+    new_pos.x = max(new_r, min(Config.GAME_WIDTH - new_r, new_pos.x))
+    new_pos.y = max(new_r, min(Config.GAME_HEIGHT - new_r, new_pos.y))
     return State(
-        Me(id=me.id, x=new_pos.x, y=new_pos.y, r=me.r, m=new_m, v=new_v),
+        Me(id=me.id, x=new_pos.x, y=new_pos.y, r=new_r, m=new_m, v=new_v),
         new_foods, state.dangers)
 
 
