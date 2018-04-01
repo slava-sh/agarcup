@@ -98,10 +98,9 @@ class Blob(Circle):
 
 
 class Player(Blob):
-    def __init__(self, id, x, y, r, m, vision_radius):
+    def __init__(self, id, x, y, r, m):
         super().__init__(x, y, r, m)
         self.id = id
-        self.vision_radius = vision_radius
 
     def can_eat(self, other):
         if not (self.m > other.m * Config.MASS_EAT_FACTOR):
@@ -113,7 +112,8 @@ class Player(Blob):
         angle = self.v.angle()
         x = self.x + math.cos(angle) * Config.VIS_SHIFT
         y = self.y + math.sin(angle) * Config.VIS_SHIFT
-        max_dist = self.vision_radius + other.r
+        vision_radius = self.r * Config.VIS_FACTOR  # TODO: Not always true.
+        max_dist = vision_radius + other.r
         return other.qdistance_to(Point(x, y)) < max_dist**2
 
     def can_burst(self):
@@ -129,8 +129,8 @@ class Enemy(Player):
 
 
 class Me(Player):
-    def __init__(self, id, x, y, r, m, v, vision_radius, ttf=None):
-        super().__init__(id, x, y, r, m, vision_radius)
+    def __init__(self, id, x, y, r, m, v, ttf=None):
+        super().__init__(id, x, y, r, m)
         self.v = v
         self.ttf = ttf
 
@@ -343,13 +343,8 @@ class Strategy:
         for danger in state.dangers:
             if danger.can_hurt(me):
                 return State(
-                    Me(id=None,
-                       x=me.x,
-                       y=me.y,
-                       r=0,
-                       m=0,
-                       v=Point(0, 0),
-                       vision_radius=0), [], [])
+                    Me(id=None, x=me.x, y=me.y, r=0, m=0, v=Point(0, 0)), [],
+                    [])
 
         new_m = me.m
         new_foods = []
@@ -367,13 +362,8 @@ class Strategy:
         new_pos.x = max(me.r, min(Config.GAME_WIDTH - me.r, new_pos.x))
         new_pos.y = max(me.r, min(Config.GAME_HEIGHT - me.r, new_pos.y))
         return State(
-            Me(id=me.id,
-               x=new_pos.x,
-               y=new_pos.y,
-               r=me.r,
-               m=new_m,
-               v=new_v,
-               vision_radius=me.vision_radius), new_foods, state.dangers)
+            Me(id=me.id, x=new_pos.x, y=new_pos.y, r=me.r, m=new_m, v=new_v),
+            new_foods, state.dangers)
 
 
 class TimingStrategy:
@@ -440,17 +430,13 @@ class Interactor:
 
     def parse_tick_data(self, data):
         my_blobs = [
-            Me(
-                id=blob.get('Id'),
-                x=blob.get('X'),
-                y=blob.get('Y'),
-                r=blob.get('R'),
-                m=blob.get('M'),
-                v=Point(blob.get('SX'), blob.get('SY')),
-                ttf=blob.get('TTF'),
-                vision_radius=blob.get('R') *
-                Config.VIS_FACTOR  # TODO: Not always true.
-            ) for blob in data.get('Mine', [])
+            Me(id=blob.get('Id'),
+               x=blob.get('X'),
+               y=blob.get('Y'),
+               r=blob.get('R'),
+               m=blob.get('M'),
+               v=Point(blob.get('SX'), blob.get('SY')),
+               ttf=blob.get('TTF')) for blob in data.get('Mine', [])
         ]
         food = []
         viruses = []
@@ -470,15 +456,13 @@ class Interactor:
                         m=obj.get('M')))
             elif t == 'P':
                 # TODO: Not always true.
-                vision_radius = obj.get('R') * Config.VIS_FACTOR
                 enemies.append(
                     Enemy(
                         id=obj.get('Id'),
                         x=obj.get('X'),
                         y=obj.get('Y'),
                         m=obj.get('M'),
-                        r=obj.get('R'),
-                        vision_radius=vision_radius))
+                        r=obj.get('R')))
             else:
                 raise ValueError('unknown object type')
         return (my_blobs, food, viruses, enemies)
@@ -516,4 +500,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
