@@ -7,7 +7,8 @@ import time
 import collections
 
 ROOT_EPS = 1
-MAX_EXPANSIONS = 2
+MIN_EXPANSIONS_PER_TICK = 3
+MIN_TIPS = 100
 ANGLES = [0, math.pi / 2, -math.pi / 2, math.pi]
 
 SKIP_DISTANCE = 20
@@ -263,9 +264,10 @@ class Strategy:
             self.tips = {}
 
         skips = max(1, int(SKIP_DISTANCE / me.max_speed()))
-        for _ in range(MAX_EXPANSIONS):
-            tip, depth = self.select_tip(self.root)
-            self.expand_tip(tip, skips)
+        i = 0
+        while i < MIN_EXPANSIONS_PER_TICK or len(self.tips) < MIN_TIPS:
+            i += 1
+            self.expand_tip(self.root, skips)
 
         if not self.commands:
             tip = max(self.tips.values(), key=lambda node: node.score)
@@ -287,7 +289,8 @@ class Strategy:
             go(self.root)
 
             for tip in self.tips.values():
-                command.add_debug_circle(Circle(tip.state.me.x, tip.state.me.y, 1), 'black', 0.3)
+                command.add_debug_circle(
+                    Circle(tip.state.me.x, tip.state.me.y, 1), 'black', 0.3)
 
             command.add_debug_circle(
                 Circle(self.root.state.me.x, self.root.state.me.y,
@@ -321,40 +324,46 @@ class Strategy:
                 command.add_debug_message(message)
         return command
 
-    def select_tip(self, node):
-        depth = 0
+    def expand_tip(self, node, skips):
         while node.children:
-            p = np.array([child.subtree_score() for child in node.children])
-            p_sum = np.sum(p)
-            if p_sum == 0:
-                p[0] = 1.0
-            else:
-                p /= p_sum
-            i = np.random.choice(np.arange(len(node.children)), p=p)
-            node = node.children[i]
+            node = self.select_child(node)
+        self.expand_node(node, skips)
+
+    def expand_path(self, node, skips):
+        depth = 0
+        while True:
             depth += 1
-        return node, depth
+            is_tip = not node.children
+            self.expand_node(node, skips * depth**2)
+            if is_tip:
+                break
+            node = self.select_child(node)
 
-    def expand_tip(self, tip, skips):
-        if tip.children:
-            raise Exception('not a tip')
+    def select_child(self, node):
+        p = np.array([child.subtree_score() for child in node.children])
+        p_sum = np.sum(p)
+        if p_sum == 0:
+            p[0] = 1.0
+        else:
+            p /= p_sum
+        i = np.random.choice(np.arange(len(node.children)), p=p)
+        return node.children[i]
 
-        tip.children = []
+    def expand_node(self, node, skips):
+        self.remove_tip(node)
         for angle in ANGLES:
-            me = tip.state.me
+            me = node.state.me
             v = Point.from_polar(Config.SPEED_FACTOR, me.v.angle() + angle)
             command = Command.go_to(me + v)
             commands = [command] * skips
             child = self.new_tip(
-                state=self.predict_states(tip.state, commands),
-                parent=tip,
+                state=self.predict_states(node.state, commands),
+                parent=node,
                 commands=commands)
-            tip.children.append(child)
-        self.remove_tip(tip)
+            node.children.append(child)
 
-        delta_score_sum = sum(child.score for child in tip.children)
-        delta_size = len(tip.children)
-        node = tip
+        delta_score_sum = sum(child.score for child in node.children)
+        delta_size = len(node.children)
         while node is not None:
             node.subtree_score_sum += delta_score_sum
             node.subtree_size += delta_size
