@@ -23,6 +23,8 @@ SAFETY_MARGIN_PENALTY = -3
 class Config:
     GAME_WIDTH = None
     GAME_HEIGHT = None
+    VISCOSITY = None
+    TICKS_TIL_FUSION = None
     VIRUS_RADIUS = None
     SPEED_FACTOR = None
     INERTION_FACTOR = None
@@ -38,6 +40,7 @@ class Config:
     VIS_SHIFT = 10.0
     RAD_HURT_FACTOR = 0.66
     MIN_SPLIT_MASS = 120.0
+    SPLIT_START_SPEED = 9.0
 
 
 class Point:
@@ -128,7 +131,7 @@ class Player(Blob):
 
     def can_split(self):
         # TODO: Consider Config.MAX_FRAGS_CNT
-        return self.mass > Config.MIN_SPLIT_MASS
+        return self.m > Config.MIN_SPLIT_MASS
 
     def max_speed(self):
         return Config.SPEED_FACTOR / math.sqrt(self.m)
@@ -291,6 +294,10 @@ class Strategy:
             self.add_expandable_nodes(skips)
 
         command = self.commands.popleft()
+        if tick % 50 == 0 and me.can_split():
+            command.split = True
+            command.pause = True
+            self.debug_messages.append('SPLIT')
         if self.debug:
 
             def go(node):
@@ -328,8 +335,6 @@ class Strategy:
                 command.add_debug_circle(
                     Circle(danger.x, danger.y, danger.r + 2), 'red', 0.1)
 
-            self.debug_prediction_error(my_blobs, command)
-
             command.add_debug_message('skips: {}'.format(skips))
             command.add_debug_message('queue: {}'.format(len(self.commands)))
             command.add_debug_message('tips: {}'.format(len(self.tips)))
@@ -340,6 +345,8 @@ class Strategy:
 
             for message in self.debug_messages:
                 command.add_debug_message(message)
+
+            self.debug_prediction_error(my_blobs, command)
 
             command.add_debug_circle(Circle(command.x, command.y, 2), 'cyan')
         return command
@@ -387,9 +394,9 @@ class Strategy:
             v = Point.from_polar(Config.SPEED_FACTOR, me.v.angle() + angle)
             node = self.root
             depth = 0
-            while (me.can_see(node.state.me()) and
-                   (node.parent is None or
-                    node.parent.state.me().qdist(node.state.me()) > ROOT_EPS**2)):
+            while (me.can_see(node.state.me())
+                   and (node.parent is None or node.parent.state.me().qdist(
+                       node.state.me()) > ROOT_EPS**2)):
                 command = Command.go_to(node.state.me() + v)
                 commands = [command] * skips
                 child = self.new_tip(
@@ -438,7 +445,9 @@ class Strategy:
 
     def predict_state(self, state, command):
         if command.split:
-            my_blobs = [new_me for me in state.my_blobs for new_me in self.split(me)]
+            my_blobs = [
+                new_me for me in state.my_blobs for new_me in self.split(me)
+            ]
         else:
             my_blobs = state.my_blobs
 
@@ -448,22 +457,23 @@ class Strategy:
             max_speed = me.max_speed()
             if me.is_fast:
                 speed = me.v.length()
-                if speed > max_speed:
-                    new_fast = True
+                new_fast = speed > max_speed
+                if new_fast:
                     speed = max(max_speed, speed - Config.VISCOSITY)
                 else:
-                    new_fast = False
                     speed = max_speed
                 new_v = me.v.with_length(speed)
+                new_pos = me
             else:
+                # TODO: Fix precision error when eating food at max speed.
                 new_fast = False
                 new_v = me.v + ((command - me).unit() * max_speed - me.v) * (
                     Config.INERTION_FACTOR / me.m)
                 new_v = new_v.with_length(min(max_speed, new_v.length()))
 
-            new_pos = me + new_v
-            new_pos.x = max(me.r, min(Config.GAME_WIDTH - me.r, new_pos.x))
-            new_pos.y = max(me.r, min(Config.GAME_HEIGHT - me.r, new_pos.y))
+                new_pos = me + new_v
+                new_pos.x = max(me.r, min(Config.GAME_WIDTH - me.r, new_pos.x))
+                new_pos.y = max(me.r, min(Config.GAME_HEIGHT - me.r, new_pos.y))
 
             new_m = me.m
             for food in self.foods:
@@ -476,13 +486,14 @@ class Strategy:
                     # TODO: Right now we assume we die.
                     continue
 
-            new_blobs.append(Me(id=me.id,
-               x=new_pos.x,
-               y=new_pos.y,
-               m=new_m,
-               v=new_v,
-               is_fast=new_fast,
-               ttf=max(0, me.ttf - 1)))
+            new_blobs.append(
+                Me(id=me.id,
+                   x=new_pos.x,
+                   y=new_pos.y,
+                   m=new_m,
+                   v=new_v,
+                   is_fast=new_fast,
+                   ttf=max(0, me.ttf - 1)))
         new_blobs.sort(key=lambda b: b.m, reverse=True)
         return State(new_blobs, state.eaten.union(new_eaten))
 
@@ -490,7 +501,7 @@ class Strategy:
         m = me.m / 2
         v = Point.from_polar(Config.SPLIT_START_SPEED, me.v.angle())
         me1 = Me(
-            id=me.id + 1,
+            id=me.id + '+1',  # TODO: Compute correct ids.
             x=me.x,
             y=me.y,
             m=m,
@@ -498,7 +509,7 @@ class Strategy:
             is_fast=True,
             ttf=Config.TICKS_TIL_FUSION)
         me2 = Me(
-            id=me.id + 2,
+            id=me.id + '+2',
             x=me.x,
             y=me.y,
             m=m,
@@ -512,7 +523,7 @@ class Strategy:
             for me, next_me in zip(my_blobs, self.next_state.my_blobs):
                 e = next_me.dist(me)
                 command.add_debug_message('prediction error: {:.8f}'.format(e))
-                if e > 1e-6:
+                if e > 1e-6 and len(my_blobs) > 1:
                     command.pause = True
                     command.add_debug_message('cmd: {!r}'.format(
                         self.last_command))
