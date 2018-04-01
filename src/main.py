@@ -8,13 +8,9 @@ import collections
 
 ROOT_EPS = 1
 MAX_EXPANSIONS = 2
-NUM_DIRECTIONS = 4
+ANGLES = [0, math.pi / 2, -math.pi / 2, math.pi]
 
-INERTION_FOR_SKIPS = 10
-MIN_SKIPS = 5
-MIN_SKIPS_MASS = 40
-MAX_SKIPS = 100
-MAX_SKIPS_MASS = 500
+SKIP_DISTANCE = 20
 
 SPEED_REWARD_FACTOR = 0.01
 
@@ -126,6 +122,9 @@ class Player(Blob):
 
     def can_hurt(self, other):
         return self.can_eat(other)
+
+    def max_speed(self):
+        return Config.SPEED_FACTOR / math.sqrt(self.m)
 
 
 class Enemy(Player):
@@ -240,14 +239,9 @@ class Strategy:
     def __init__(self, logger, debug):
         self.logger = logger
         self.debug = debug
-        self.angles = [
-            angle
-            for angle in np.linspace(0, math.pi * 2, NUM_DIRECTIONS + 1)[:-1]
-        ]
         self.root = None
         self.next_root = None
         self.tips = {}
-        self.skips = None
         self.commands = collections.deque([])
 
     def tick(self, tick, data):
@@ -259,13 +253,6 @@ class Strategy:
         me = my_blobs[0]
         self.foods = food + enemies
         self.dangers = viruses + enemies
-
-        self.skips = int(
-            max(MIN_SKIPS,
-                min(MAX_SKIPS, MIN_SKIPS + (me.m - MIN_SKIPS_MASS) *
-                    (MAX_SKIPS - MIN_SKIPS) /
-                    (MAX_SKIPS_MASS - MIN_SKIPS_MASS))) * math.sqrt(
-                        INERTION_FOR_SKIPS / Config.INERTION_FACTOR))
 
         if (not self.commands and self.root is not None
                 and self.next_root is not None
@@ -283,9 +270,10 @@ class Strategy:
             self.next_root = None
             self.tips = {}
 
+        skips = max(1, int(SKIP_DISTANCE / me.max_speed()))
         for _ in range(MAX_EXPANSIONS):
-            tip = self.select_tip(self.next_root or self.root)
-            self.expand_tip(tip)
+            tip, depth = self.select_tip(self.next_root or self.root)
+            self.expand_tip(tip, skips)
 
         if not self.commands:
             tip = max(self.tips.values(), key=lambda node: node.score)
@@ -334,7 +322,7 @@ class Strategy:
                 command.add_debug_circle(
                     Circle(danger.x, danger.y, danger.r + 2), 'red', 0.1)
 
-            command.add_debug_message('skips: {}'.format(self.skips))
+            command.add_debug_message('skips: {}'.format(skips))
             command.add_debug_message('queue: {}'.format(len(self.commands)))
             command.add_debug_message('tips: {}'.format(len(self.tips)))
             command.add_debug_message('tree: {}'.format(
@@ -347,6 +335,7 @@ class Strategy:
         return command
 
     def select_tip(self, node):
+        depth = 0
         while node.children:
             p = np.array([child.subtree_score() for child in node.children])
             p_sum = np.sum(p)
@@ -356,18 +345,19 @@ class Strategy:
                 p /= p_sum
             i = np.random.choice(np.arange(len(node.children)), p=p)
             node = node.children[i]
-        return node
+            depth += 1
+        return node, depth
 
-    def expand_tip(self, tip):
+    def expand_tip(self, tip, skips):
         if tip.children:
             raise Exception('not a tip')
 
         tip.children = []
-        for angle in self.angles:
+        for angle in ANGLES:
             me = tip.state.me
             v = Point.from_polar(Config.SPEED_FACTOR, me.v.angle() + angle)
             command = Command.go_to(me + v)
-            commands = [command] * self.skips
+            commands = [command] * skips
             child = self.new_tip(
                 state=self.predict_states(tip.state, commands),
                 parent=tip,
@@ -420,7 +410,7 @@ class Strategy:
         if me.id is None:  # Dead.
             return state
 
-        max_speed = Config.SPEED_FACTOR / math.sqrt(me.m)
+        max_speed = me.max_speed()
         new_v = me.v + ((command - me).unit() * max_speed - me.v) * (
             Config.INERTION_FACTOR / me.m)
         new_v = new_v.with_length(min(max_speed, new_v.length()))
