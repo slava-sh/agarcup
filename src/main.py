@@ -7,7 +7,8 @@ import time
 import collections
 
 ROOT_EPS = 1
-MIN_TIPS = 1
+EXPANSIONS_PER_TICK = 5
+MIN_EXPANSION_DEPTH = 3
 EXPAND_ANGLES = [0, math.pi / 2, -math.pi / 2, math.pi]
 DISCOVERY_ANGLES = np.linspace(0, 2 * math.pi, 4 * 3)[:-1]
 
@@ -265,7 +266,7 @@ class Strategy:
             self.tips = {}
 
         skips = max(1, int(SKIP_DISTANCE / me.max_speed()))
-        while len(self.tips) < MIN_TIPS:
+        for _ in range(EXPANSIONS_PER_TICK):
             self.expand_child(self.root, skips)
 
         if not self.commands:
@@ -365,6 +366,7 @@ class Strategy:
         for angle in DISCOVERY_ANGLES:
             v = Point.from_polar(Config.SPEED_FACTOR, me.v.angle() + angle)
             node = self.root
+            depth = 0
             while (me.can_see(node.state.me) and
                    (node.parent is None or
                     node.parent.state.me.qdist(node.state.me) > ROOT_EPS**2)):
@@ -376,7 +378,11 @@ class Strategy:
                     commands=commands)
                 node.children.append(child)  # last_node is still expandable.
                 self.remove_tip(node)
+                depth += 1
+                if depth < MIN_EXPANSION_DEPTH:
+                    child.expandable = False
                 node = child
+            node.expandable = True
 
     def get_next_root(self, tip):
         node = tip
