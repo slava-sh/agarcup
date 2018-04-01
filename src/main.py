@@ -20,6 +20,24 @@ MAX_SKIPS_MASS = 500
 DANGER_PENALTY = -1000
 
 
+class Config:
+    GAME_WIDTH = None
+    GAME_HEIGHT = None
+    VIRUS_RADIUS = None
+    SPEED_FACTOR = None
+    INERTION_FACTOR = None
+    FOOD_MASS = None
+    FOOD_RADIUS = 2.5
+    EJECTION_RADIUS = 4.0
+    EJECTION_MASS = 15.0
+    MASS_EAT_FACTOR = 1.2
+    DIAM_EAT_FACTOR = 2 / 3
+    VIS_FACTOR = 4.0
+    VIS_FACTOR_FR = 2.5
+    VIS_SHIFT = 10.0
+    RAD_HURT_FACTOR = 0.66
+
+
 class Point:
     def __init__(self, x, y):
         self.x = x
@@ -75,22 +93,23 @@ class Blob(Circle):
 
 
 class Player(Blob):
-    def __init__(self, id, x, y, r, m, vision_radius, config):
+    def __init__(self, id, x, y, r, m, vision_radius):
         super().__init__(x, y, r, m)
-        self.config = config
         self.id = id
         self.vision_radius = vision_radius
 
     def can_eat(self, other):
-        return self.m > other.m * self.config.MASS_EAT_FACTOR and self.qdistance_to(
-            other) < (self.r - other.r * self.config.RAD_EAT_FACTOR)**2
+        if not (self.m > other.m * Config.MASS_EAT_FACTOR):
+            return False
+        max_dist = self.r + other.r - other.r * 2 * Config.DIAM_EAT_FACTOR
+        return self.qdistance_to(other) < max_dist**2
 
     def can_see(self, other):
         angle = self.v.angle()
-        x = self.x + math.cos(angle) * self.config.VIS_SHIFT
-        y = self.y + math.sin(angle) * self.config.VIS_SHIFT
-        return other.qdistance_to(Point(x,
-                                        y)) < (self.vision_radius + other.r)**2
+        x = self.x + math.cos(angle) * Config.VIS_SHIFT
+        y = self.y + math.sin(angle) * Config.VIS_SHIFT
+        max_dist = self.vision_radius + other.r
+        return other.qdistance_to(Point(x, y)) < max_dist**2
 
     def can_burst(self):
         # TODO
@@ -105,34 +124,33 @@ class Enemy(Player):
 
 
 class Me(Player):
-    def __init__(self, id, x, y, r, m, v, vision_radius, config, ttf=None):
-        super().__init__(id, x, y, r, m, vision_radius, config)
+    def __init__(self, id, x, y, r, m, v, vision_radius, ttf=None):
+        super().__init__(id, x, y, r, m, vision_radius)
         self.v = v
         self.ttf = ttf
 
 
 class Food(Blob):
-    def __init__(self, x, y, config):
-        super().__init__(x, y, r=config.FOOD_RADIUS, m=config.FOOD_MASS)
+    def __init__(self, x, y):
+        super().__init__(x, y, r=Config.FOOD_RADIUS, m=Config.FOOD_MASS)
 
 
 class Ejection(Food):
-    def __init__(self, x, y, config):
+    def __init__(self, x, y):
         super().__init__(
-            x, y, r=config.EJECTION_RADIUS, m=config.EJECTION_MASS)
+            x, y, r=Config.EJECTION_RADIUS, m=Config.EJECTION_MASS)
 
 
 class Virus(Blob):
-    def __init__(self, id, x, y, m, config):
-        super().__init__(x, y, r=config.VIRUS_RADIUS, m=m)
-        self.config = config
+    def __init__(self, id, x, y, m):
+        super().__init__(x, y, r=Config.VIRUS_RADIUS, m=m)
         self.id = id
 
     def can_hurt(self, other):
         if other.r < self.r or not other.can_burst():
             return False
         return self.qdistance_to(other) < (
-            self.r * self.config.RAD_HURT_FACTOR + other.r)**2
+            self.r * Config.RAD_HURT_FACTOR + other.r)**2
 
 
 class Command(Point):
@@ -169,29 +187,9 @@ class GoTo(Command):
         super().__init__(point.x, point.y, debug_message)
 
 
-class Config:
-    def __init__(self, config):
-        self.GAME_WIDTH = config['GAME_WIDTH']
-        self.GAME_HEIGHT = config['GAME_HEIGHT']
-        self.FOOD_RADIUS = config.get('FOOD_RADIUS', 2.5)
-        self.FOOD_MASS = config['FOOD_MASS']
-        self.EJECTION_RADIUS = config.get('EJECTION_RADIUS', 4.0)
-        self.EJECTION_MASS = config.get('EJECTION_MASS', 15.0)
-        self.VIRUS_RADIUS = config['VIRUS_RADIUS']
-        self.SPEED_FACTOR = config['SPEED_FACTOR']
-        self.INERTION_FACTOR = config['INERTION_FACTOR']
-        self.MASS_EAT_FACTOR = config.get('MASS_EAT_FACTOR', 1.2)
-        self.RAD_EAT_FACTOR = config.get('RAD_EAT_FACTOR', 0.66)
-        self.VIS_FACTOR = config.get('VIS_FACTOR', 4.0)
-        self.VIS_FACTOR_FR = config.get('VIS_FACTOR_FR', 2.5)
-        self.VIS_SHIFT = config.get('VIS_SHIFT', 10.0)
-        self.RAD_HURT_FACTOR = config.get('RAD_HURT_FACTOR', 0.66)
-
-
 class PathTree:
     def __init__(self,
                  state,
-                 config,
                  root=None,
                  v=None,
                  parent=None,
@@ -211,9 +209,9 @@ class PathTree:
                 self.score += DANGER_PENALTY
 
         SAFETY_MARGIN = me.r * SAFETY_MARGIN_FACTOR
-        if me.x < SAFETY_MARGIN or me.x > config.GAME_WIDTH - SAFETY_MARGIN:
+        if me.x < SAFETY_MARGIN or me.x > Config.GAME_WIDTH - SAFETY_MARGIN:
             self.score += SAFETY_MARGIN_PENALTY
-        if me.y < SAFETY_MARGIN or me.y > config.GAME_HEIGHT - SAFETY_MARGIN:
+        if me.y < SAFETY_MARGIN or me.y > Config.GAME_HEIGHT - SAFETY_MARGIN:
             self.score += SAFETY_MARGIN_PENALTY
 
     def __repr__(self):
@@ -228,8 +226,7 @@ class State:
 
 
 class Planner:
-    def __init__(self, config, logger):
-        self.config = config
+    def __init__(self, logger):
         self.logger = logger
         self.vs = [
             Point(math.cos(angle), math.sin(angle)) * BIG_SPEED
@@ -276,10 +273,9 @@ class Planner:
         return node
 
     def select_node(self, me):
-        score = lambda node: node.score
         return max(
             (tip for tip in self.tips.values() if me.can_see(tip.state.me)),
-            key=score,
+            key=lambda node: node.score,
             default=None)
 
     def discover_nodes(self, roots):
@@ -294,7 +290,7 @@ class Planner:
         return nodes
 
     def new_tip(self, *args, **kwargs):
-        tip = PathTree(*args, **kwargs, config=self.config, root=self.root)
+        tip = PathTree(*args, **kwargs, root=self.root)
         self.tips[id(tip)] = tip
         return tip
 
@@ -335,8 +331,7 @@ class Planner:
                        r=0,
                        m=0,
                        v=Point(0, 0),
-                       vision_radius=0,
-                       config=self.config), [], [])
+                       vision_radius=0), [], [])
 
         new_m = me.m
         new_foods = []
@@ -346,13 +341,13 @@ class Planner:
             else:
                 new_foods.append(food)
 
-        max_speed = self.config.SPEED_FACTOR / math.sqrt(new_m)
+        max_speed = Config.SPEED_FACTOR / math.sqrt(new_m)
         new_v = me.v + (v.unit() * max_speed - me.v) * (
-            self.config.INERTION_FACTOR / new_m)
+            Config.INERTION_FACTOR / new_m)
         new_v = new_v.with_length(min(max_speed, new_v.length()))
         new_pos = me + new_v
-        new_pos.x = max(me.r, min(self.config.GAME_WIDTH - me.r, new_pos.x))
-        new_pos.y = max(me.r, min(self.config.GAME_HEIGHT - me.r, new_pos.y))
+        new_pos.x = max(me.r, min(Config.GAME_WIDTH - me.r, new_pos.x))
+        new_pos.y = max(me.r, min(Config.GAME_HEIGHT - me.r, new_pos.y))
         return State(
             Me(id=me.id,
                x=new_pos.x,
@@ -360,8 +355,7 @@ class Planner:
                r=me.r,
                m=new_m,
                v=new_v,
-               vision_radius=me.vision_radius,
-               config=self.config), new_foods, state.dangers)
+               vision_radius=me.vision_radius), new_foods, state.dangers)
 
 
 class Strategy:
@@ -401,7 +395,7 @@ class Strategy:
 
         def dfs(node):
             for child in node.children:
-                #command.add_debug_line([node.state.me, child.state.me], 'gray')
+                command.add_debug_line([node.state.me, child.state.me], 'gray')
                 dfs(child)
 
         dfs(self.planner.root)
@@ -413,10 +407,15 @@ class Strategy:
 
         return command
 
+    def read_config(self):
+        config = self.read_json()
+        for key, value in config.items():
+            setattr(Config, key, value)
+
     def run(self):
         self.logger.debug('hello')
-        self.config = Config(self.read_json())
-        self.planner = Planner(self.config, self.logger)
+        self.read_config()
+        self.planner = Planner(self.logger)
         while True:
             try:
                 data = self.read_json()
@@ -452,9 +451,8 @@ class Strategy:
                 m=blob.get('M'),
                 v=Point(blob.get('SX'), blob.get('SY')),
                 ttf=blob.get('TTF'),
-                vision_radius=blob.get('R') *
-                self.config.VIS_FACTOR,  # TODO: Not always true.
-                config=self.config) for blob in data.get('Mine', [])
+                vision_radius=blob.get('R') * Config.VIS_FACTOR  # TODO: Not always true.
+                ) for blob in data.get('Mine', [])
         ]
         self.food = []
         self.viruses = []
@@ -462,21 +460,19 @@ class Strategy:
         for obj in data.get('Objects', []):
             t = obj.get('T')
             if t == 'F':
-                self.food.append(Food(obj.get('X'), obj.get('Y'), self.config))
+                self.food.append(Food(obj.get('X'), obj.get('Y')))
             elif t == 'E':
-                self.food.append(
-                    Ejection(obj.get('X'), obj.get('Y'), self.config))
+                self.food.append(Ejection(obj.get('X'), obj.get('Y')))
             elif t == 'V':
                 self.viruses.append(
                     Virus(
                         id=obj.get('Id'),
                         x=obj.get('X'),
                         y=obj.get('Y'),
-                        m=obj.get('M'),
-                        config=self.config))
+                        m=obj.get('M')))
             elif t == 'P':
                 # TODO: Not always true.
-                vision_radius = obj.get('R') * self.config.VIS_FACTOR
+                vision_radius = obj.get('R') * Config.VIS_FACTOR
                 self.enemies.append(
                     Enemy(
                         id=obj.get('Id'),
@@ -484,8 +480,7 @@ class Strategy:
                         y=obj.get('Y'),
                         m=obj.get('M'),
                         r=obj.get('R'),
-                        vision_radius=vision_radius,
-                        config=self.config))
+                        vision_radius=vision_radius))
             else:
                 raise ValueError('unknown object type')
 
