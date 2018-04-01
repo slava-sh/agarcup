@@ -2,12 +2,10 @@ import json
 import logging
 import math
 import os
-import random
 import numpy as np
-import collections
 import time
 
-MAX_PROMISING_EXPANSIONS = 10
+MAX_EXPANSIONS = 10
 BIG_SPEED = 1000
 NUM_DIRECTIONS = 4 * 2
 SAFETY_MARGIN_FACTOR = 2.5
@@ -161,42 +159,31 @@ class Command(Point):
     def __init__(self,
                  x,
                  y,
-                 debug_message=None,
+                 debug_messages=None,
                  debug_lines=None,
                  debug_circles=None):
         self.x = x
         self.y = y
-        self.debug_message = debug_message
+        self.debug_messages = debug_messages or []
         self.debug_lines = debug_lines or []
         self.debug_circles = debug_circles or []
-        self.debug = bool(os.getenv('DEBUG_STRATEGY'))
+
+    @staticmethod
+    def go_to(target):
+        return Command(target.x, target.y)
 
     def add_debug_message(self, debug_message):
-        self.debug_message = debug_message
-        return self
+        self.debug_messages.append(debug_message)
 
     def add_debug_line(self, points, color=None):
-        if self.debug:
-            self.debug_lines.append((points, color))
-        return self
+        self.debug_lines.append((points, color))
 
     def add_debug_circle(self, circle, color=None):
-        if self.debug:
-            self.debug_circles.append((circle, color))
-        return self
-
-
-class GoTo(Command):
-    def __init__(self, point, debug_message=None):
-        super().__init__(point.x, point.y, debug_message)
+        self.debug_circles.append((circle, color))
 
 
 class Node:
-    def __init__(self,
-                 state,
-                 parent=None,
-                 command=None,
-                 children=None):
+    def __init__(self, state, parent=None, command=None, children=None):
         self.state = state
         self.parent = parent
         self.command = command
@@ -261,12 +248,27 @@ class Strategy:
         self.tips = {}
         self.root = self.new_tip(State(me, foods, dangers))
 
-        tip = self.select_tip(self.root)
-        self.expand_tip(tip)
+        for _ in range(MAX_EXPANSIONS):
+            tip = self.select_tip(self.root)
+            self.expand_tip(tip)
 
         tip = max(self.tips.values(), key=lambda node: node.score)
         next_root = self.get_next_root(tip)
-        return next_root.command
+        command = next_root.command
+
+        if self.debug:
+
+            def go(node):
+                for child in node.children:
+                    command.add_debug_line([node.state.me, child.state.me],
+                                           'gray')
+                    go(child)
+
+            go(self.root)
+            command.add_debug_circle(
+                Circle(tip.state.me.x, tip.state.me.y, 2), 'red')
+            command.add_debug_message('t={}'.format(len(self.tips)))
+        return command
 
     def select_tip(self, node):
         while node.children:
@@ -281,11 +283,11 @@ class Strategy:
         for angle in self.angles:
             me = tip.state.me
             v = Point.from_polar(BIG_SPEED, me.v.angle() + angle)
-            command = GoTo(me + v)
+            command = Command.go_to(me + v)
             child = self.new_tip(
-                    state=predict_states(tip.state, [command] * self.skips),
-                    parent=tip,
-                    command=command)
+                state=predict_states(tip.state, [command] * self.skips),
+                parent=tip,
+                command=command)
             tip.children.append(child)
         self.remove_tip(tip)
 
@@ -329,8 +331,7 @@ def predict_state(state, command):
     for danger in state.dangers:
         if danger.can_hurt(me):
             return State(
-                Me(id=None, x=me.x, y=me.y, r=0, m=0, v=Point(0, 0)), [],
-                [])
+                Me(id=None, x=me.x, y=me.y, r=0, m=0, v=Point(0, 0)), [], [])
 
     new_m = me.m
     new_foods = []
@@ -414,7 +415,8 @@ class Interactor:
         return json.loads(input())
 
     def print_command(self, command):
-        output = dict(X=command.x, Y=command.y, Debug=command.debug_message)
+        output = dict(
+            X=command.x, Y=command.y, Debug='; '.join(command.debug_messages))
         if self.debug:
             output['Draw'] = dict(
                 Lines=[
