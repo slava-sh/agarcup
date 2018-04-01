@@ -175,11 +175,11 @@ class Command(Point):
     def add_debug_message(self, debug_message):
         self.debug_messages.append(debug_message)
 
-    def add_debug_line(self, points, color=None):
-        self.debug_lines.append((points, color))
+    def add_debug_line(self, points, color=None, alpha=None):
+        self.debug_lines.append((points, color, alpha))
 
-    def add_debug_circle(self, circle, color=None):
-        self.debug_circles.append((circle, color))
+    def add_debug_circle(self, circle, color=None, alpha=None):
+        self.debug_circles.append((circle, color, alpha))
 
 
 class Node:
@@ -197,7 +197,7 @@ class Node:
         me = self.state.me
         score = me.m
 
-        score += math.sqrt(me.v.length())
+        #score += math.sqrt(me.v.length())
 
         SAFETY_MARGIN = me.r * SAFETY_MARGIN_FACTOR
         if me.x < SAFETY_MARGIN or me.x > Config.GAME_WIDTH - SAFETY_MARGIN:
@@ -265,9 +265,20 @@ class Strategy:
         command = Command(self.next_root.command.x, self.next_root.command.y)
 
         if self.debug:
-            for node in self.tips.values():
-                command.add_debug_circle(
-                    Circle(node.state.me.x, node.state.me.y, 1), 'gray')
+            tips = list(self.tips.values())
+            tips.sort(key=lambda node: node.score)
+            min_score = tips[0].score
+            max_score = tips[-1].score
+            self.logger.debug('tips')
+            for node in tips:
+                self.logger.debug('tip %d@%r %.6f', id(node), node.state.me, node.score)
+                if max_score == min_score:
+                    command.add_debug_circle(
+                        Circle(node.state.me.x, node.state.me.y, 1), 'black')
+                else:
+                    alpha = (node.score - min_score) / (max_score - min_score)
+                    command.add_debug_circle(
+                        Circle(node.state.me.x, node.state.me.y, 3), 'blue', alpha)
             command.add_debug_circle(
                 Circle(tip.state.me.x, tip.state.me.y, 2), 'red')
             command.add_debug_message('t={}'.format(len(self.tips)))
@@ -437,12 +448,15 @@ class Interactor:
         if self.debug:
             output['Draw'] = dict(
                 Lines=[
-                    dict(P=[dict(X=p.x, Y=p.y) for p in points], C=color)
-                    for points, color in command.debug_lines
+                    dict(
+                        P=[dict(X=p.x, Y=p.y) for p in points],
+                        C=color,
+                        A=alpha)
+                    for points, color, alpha in command.debug_lines
                 ],
                 Circles=[
-                    dict(X=c.x, Y=c.y, R=c.r, C=color)
-                    for c, color in command.debug_circles
+                    dict(X=c.x, Y=c.y, R=c.r, C=color, A=alpha)
+                    for c, color, alpha in command.debug_circles
                 ])
         print(json.dumps(output))
 
