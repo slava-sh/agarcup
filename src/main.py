@@ -43,6 +43,12 @@ class Point:
         self.x = x
         self.y = y
 
+    @staticmethod
+    def from_polar(r, angle):
+        x = r * math.cos(angle)
+        y = r * math.sin(angle)
+        return Point(x, y)
+
     def distance_to(self, other):
         return math.hypot(self.x - other.x, self.y - other.y)
 
@@ -187,15 +193,10 @@ class GoTo(Command):
         super().__init__(point.x, point.y, debug_message)
 
 
-class PathTree:
-    def __init__(self,
-                 state,
-                 root=None,
-                 v=None,
-                 parent=None,
-                 children=None):
+class Node:
+    def __init__(self, state, root=None, command=None, parent=None, children=None):
         self.state = state
-        self.v = v
+        self.command = command
         self.parent = parent
         self.children = children or []
 
@@ -228,8 +229,8 @@ class State:
 class Planner:
     def __init__(self, logger):
         self.logger = logger
-        self.vs = [
-            Point(math.cos(angle), math.sin(angle)) * BIG_SPEED
+        self.angles = [
+            angle
             for angle in np.linspace(0, math.pi * 2, NUM_DIRECTIONS + 1)[:-1]
         ]
         self.root = None
@@ -264,7 +265,7 @@ class Planner:
 
         tip = max(self.tips.values(), key=lambda node: node.score)
         self.next_root = self.get_next_root(tip)
-        return self.next_root.v, tip
+        return self.next_root.command, tip
 
     def get_next_root(self, tip):
         node = tip
@@ -290,7 +291,7 @@ class Planner:
         return nodes
 
     def new_tip(self, *args, **kwargs):
-        tip = PathTree(*args, **kwargs, root=self.root)
+        tip = Node(*args, **kwargs, root=self.root)
         self.tips[id(tip)] = tip
         return tip
 
@@ -303,24 +304,30 @@ class Planner:
     def expand(self, node):
         if node.children:
             raise ValueError('node already expanded')
-        node.children = [
-            self.new_tip(
-                self.predict_moves(node.state, [v] * self.skips),
-                v=v,
-                parent=node) for v in self.vs
-        ]
+        node.children = []
+        for angle in self.angles:
+            me = node.state.me
+            v = Point.from_polar(BIG_SPEED, me.v.angle() + angle)
+            command = GoTo(me + v)
+            node.children.append(
+                self.new_tip(
+                    self.predict_moves(node.state, [command] * self.skips),
+                    command=command,
+                    parent=node))
         self.remove_tip(node)
         return node.children
 
-    def predict_moves(self, state, vs):
-        for v in vs:
-            state = self.predict_move(state, v)
+    def predict_moves(self, state, commands):
+        for command in commands:
+            state = self.predict_move(state, command)
         return state
 
-    def predict_move(self, state, v):
+    def predict_move(self, state, command):
         me = state.me
         if me.id is None:  # Dead.
             return state
+
+        v = Point(command.x, command.y) - me
 
         for danger in state.dangers:
             if danger.can_hurt(me):
@@ -361,61 +368,12 @@ class Planner:
 class Strategy:
     def __init__(self, logger):
         self.logger = logger
-        self.tick = None
-
-    def on_tick(self):
-        start = time.time()
-
-        if self.tick is None:
-            self.tick = 0
-        else:
-            self.tick += 1
-
-        if self.tick % self.planner.skips == 0:
-            command = self.get_command()
-            self.last_command = command
-        else:
-            command = self.last_command
-
-        elapsed = time.time() - start
-        if elapsed > AVG_TICK_TIME_SECS * self.planner.skips:
-            command.add_debug_message('SLOW: {:.2f}s'.format(elapsed))
-        return command
-
-    def get_command(self):
-        # Find my biggest blob.
-        self.my_blobs.sort(key=lambda b: b.m, reverse=True)
-        me = self.my_blobs[0]
-
-        foods = self.food + self.enemies
-        dangers = self.viruses + self.enemies
-
-        v, tip = self.planner.plan(me, foods, dangers)
-        command = GoTo(me + v)
-
-        def dfs(node):
-            for child in node.children:
-                command.add_debug_line([node.state.me, child.state.me], 'gray')
-                dfs(child)
-
-        dfs(self.planner.root)
-
-        command.add_debug_message('t={}'.format(len(self.planner.tips)))
-
-        t = tip.state.me
-        command.add_debug_circle(Circle(t.x, t.y, 2), 'red')
-
-        return command
-
-    def read_config(self):
-        config = self.read_json()
-        for key, value in config.items():
-            setattr(Config, key, value)
 
     def run(self):
         self.logger.debug('hello')
         self.read_config()
         self.planner = Planner(self.logger)
+        self.tick = 0
         while True:
             try:
                 data = self.read_json()
@@ -440,6 +398,53 @@ class Strategy:
                                 dict(X=c.x, Y=c.y, R=c.r, C=color)
                                 for c, color in command.debug_circles
                             ]))))
+            self.tick += 1
+
+    def on_tick(self):
+        start = time.time()
+
+        if self.tick % self.planner.skips == 0:
+            command = self.get_command()
+            self.last_command = command
+        else:
+            command = self.last_command
+
+        elapsed = time.time() - start
+        if elapsed > AVG_TICK_TIME_SECS * self.planner.skips:
+            command.add_debug_message('SLOW: {:.2f}s'.format(elapsed))
+        return command
+
+    def get_command(self):
+        # Find my biggest blob.
+        self.my_blobs.sort(key=lambda b: b.m, reverse=True)
+        me = self.my_blobs[0]
+
+        foods = self.food + self.enemies
+        dangers = self.viruses + self.enemies
+
+        command, tip = self.planner.plan(me, foods, dangers)
+
+        def dfs(node):
+            for child in node.children:
+                command.add_debug_line([node.state.me, child.state.me], 'gray')
+                dfs(child)
+
+        dfs(self.planner.root)
+
+        command.add_debug_message('t={}'.format(len(self.planner.tips)))
+
+        t = tip.state.me
+        command.add_debug_circle(Circle(t.x, t.y, 2), 'red')
+
+        return command
+
+    def read_config(self):
+        config = self.read_json()
+        for key, value in config.items():
+            setattr(Config, key, value)
+
+    def read_json(self):
+        return json.loads(input())
 
     def parse_blobs(self, data):
         self.my_blobs = [
@@ -451,8 +456,9 @@ class Strategy:
                 m=blob.get('M'),
                 v=Point(blob.get('SX'), blob.get('SY')),
                 ttf=blob.get('TTF'),
-                vision_radius=blob.get('R') * Config.VIS_FACTOR  # TODO: Not always true.
-                ) for blob in data.get('Mine', [])
+                vision_radius=blob.get('R') *
+                Config.VIS_FACTOR  # TODO: Not always true.
+            ) for blob in data.get('Mine', [])
         ]
         self.food = []
         self.viruses = []
@@ -483,9 +489,6 @@ class Strategy:
                         vision_radius=vision_radius))
             else:
                 raise ValueError('unknown object type')
-
-    def read_json(self):
-        return json.loads(input())
 
 
 def get_logger():
