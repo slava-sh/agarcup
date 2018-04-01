@@ -5,7 +5,7 @@ import os
 import numpy as np
 import time
 
-MAX_EXPANSIONS = 10
+MAX_EXPANSIONS = 5
 BIG_SPEED = 1000
 NUM_DIRECTIONS = 4 * 2
 SAFETY_MARGIN_FACTOR = 2.5
@@ -45,10 +45,10 @@ class Point:
         y = r * math.sin(angle)
         return Point(x, y)
 
-    def distance_to(self, other):
+    def dist(self, other):
         return math.hypot(self.x - other.x, self.y - other.y)
 
-    def qdistance_to(self, other):
+    def qdist(self, other):
         return (self.x - other.x)**2 + (self.y - other.y)**2
 
     def angle(self):
@@ -103,7 +103,7 @@ class Player(Blob):
         if not (self.m > other.m * Config.MASS_EAT_FACTOR):
             return False
         max_dist = self.r + other.r - other.r * 2 * Config.DIAM_EAT_FACTOR
-        return self.qdistance_to(other) < max_dist**2
+        return self.qdist(other) < max_dist**2
 
     def can_see(self, other):
         angle = self.v.angle()
@@ -111,7 +111,7 @@ class Player(Blob):
         y = self.y + math.sin(angle) * Config.VIS_SHIFT
         vision_radius = self.r * Config.VIS_FACTOR  # TODO: Not always true.
         max_dist = vision_radius + other.r
-        return other.qdistance_to(Point(x, y)) < max_dist**2
+        return other.qdist(Point(x, y)) < max_dist**2
 
     def can_burst(self):
         # TODO
@@ -151,7 +151,7 @@ class Virus(Blob):
     def can_hurt(self, other):
         if other.r < self.r or not other.can_burst():
             return False
-        return self.qdistance_to(other) < (
+        return self.qdist(other) < (
             self.r * Config.RAD_HURT_FACTOR + other.r)**2
 
 
@@ -236,6 +236,7 @@ class Strategy:
             for angle in np.linspace(0, math.pi * 2, NUM_DIRECTIONS + 1)[:-1]
         ]
         self.root = None
+        self.next_root = None
         self.skips = MIN_SKIPS
 
     def tick(self, tick, data):
@@ -245,16 +246,24 @@ class Strategy:
         foods = food + enemies
         dangers = viruses + enemies
 
-        self.tips = {}
-        self.root = self.new_tip(State(me, foods, dangers))
+        if self.root is not None and self.next_root is not None:
+            distance_to_next_root = self.next_root.state.me.qdist(me)
+            distance_to_root = self.root.state.me.qdist(me)
+            if distance_to_next_root < distance_to_root:
+                self.root = self.next_root
+                self.root.parent = None
+
+        if self.root is None or self.root.state.me.qdist(me) > me.r**2:
+            self.tips = {}
+            self.root = self.new_tip(State(me, foods, dangers))
 
         for _ in range(MAX_EXPANSIONS):
             tip = self.select_tip(self.root)
             self.expand_tip(tip)
 
         tip = max(self.tips.values(), key=lambda node: node.score)
-        next_root = self.get_next_root(tip)
-        command = next_root.command
+        self.next_root = self.get_next_root(tip)
+        command = Command(self.next_root.command.x, self.next_root.command.y)
 
         if self.debug:
 
@@ -272,7 +281,10 @@ class Strategy:
 
     def select_tip(self, node):
         while node.children:
-            node = max(node.children, key=lambda node: node.subtree_score())
+            p = np.array([child.subtree_score() for child in node.children])
+            p /= np.sum(p)
+            i = np.random.choice(np.arange(len(node.children)), p=p)
+            node = node.children[i]
         return node
 
     def expand_tip(self, tip):
@@ -301,7 +313,7 @@ class Strategy:
 
     def get_next_root(self, tip):
         node = tip
-        while node.parent is not self.root:
+        while node.parent is not None and node.parent.parent is not None:
             node = node.parent
         return node
 
