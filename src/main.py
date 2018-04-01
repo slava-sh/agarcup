@@ -12,7 +12,6 @@ BIG_SPEED = 1000
 NUM_DIRECTIONS = 4 * 2
 SAFETY_MARGIN_FACTOR = 2.5
 SAFETY_MARGIN_PENALTY = -3
-AVG_TICK_TIME_SECS = 150 / 7500
 MIN_SKIPS = 5
 MIN_SKIPS_MASS = 40
 MAX_SKIPS = 50
@@ -194,7 +193,12 @@ class GoTo(Command):
 
 
 class Node:
-    def __init__(self, state, root=None, command=None, parent=None, children=None):
+    def __init__(self,
+                 state,
+                 root=None,
+                 command=None,
+                 parent=None,
+                 children=None):
         self.state = state
         self.command = command
         self.parent = parent
@@ -226,9 +230,10 @@ class State:
         self.dangers = dangers
 
 
-class Planner:
-    def __init__(self, logger):
+class Strategy:
+    def __init__(self, logger, debug):
         self.logger = logger
+        self.debug = debug
         self.angles = [
             angle
             for angle in np.linspace(0, math.pi * 2, NUM_DIRECTIONS + 1)[:-1]
@@ -236,7 +241,13 @@ class Planner:
         self.root = None
         self.skips = MIN_SKIPS
 
-    def plan(self, me, foods, dangers):
+    def tick(self, tick, data):
+        my_blobs, food, viruses, enemies = data
+        my_blobs.sort(key=lambda b: b.m, reverse=True)
+        me = my_blobs[0]
+        foods = food + enemies
+        dangers = viruses + enemies
+
         self.skips = int(
             max(MIN_SKIPS,
                 min(MAX_SKIPS, MIN_SKIPS + (me.m - MIN_SKIPS_MASS) *
@@ -265,7 +276,7 @@ class Planner:
 
         tip = max(self.tips.values(), key=lambda node: node.score)
         self.next_root = self.get_next_root(tip)
-        return self.next_root.command, tip
+        return self.next_root.command
 
     def get_next_root(self, tip):
         node = tip
@@ -365,89 +376,70 @@ class Planner:
                vision_radius=me.vision_radius), new_foods, state.dangers)
 
 
-class Strategy:
-    def __init__(self, logger):
+class TimingStrategy:
+    AVG_TICK_TIME_SECS = 150 / 7500
+
+    def __init__(self, strategy):
+        self.strategy = strategy
+
+    def tick(self, *args, **kwargs):
+        start = time.time()
+        command = self.strategy.tick(*args, **kwargs)
+        elapsed = time.time() - start
+        if elapsed > self.AVG_TICK_TIME_SECS:
+            command.add_debug_message('SLOW: {:.2f}s'.format(elapsed))
+        return command
+
+
+class Interactor:
+    def __init__(self, strategy, logger, debug):
+        self.strategy = strategy
         self.logger = logger
+        self.debug = debug
 
     def run(self):
         self.logger.debug('hello')
         self.read_config()
-        self.planner = Planner(self.logger)
-        self.tick = 0
+        tick = 0
         while True:
-            try:
-                data = self.read_json()
-            except EOFError:
+            data = self.read_tick_data()
+            if not data:
                 break
-            self.parse_blobs(data)
-            command = self.on_tick()
-            print(
-                json.dumps(
-                    dict(
-                        X=command.x,
-                        Y=command.y,
-                        Debug=command.debug_message,
-                        Draw=dict(
-                            Lines=[
-                                dict(
-                                    P=[dict(X=p.x, Y=p.y) for p in points],
-                                    C=color)
-                                for points, color in command.debug_lines
-                            ],
-                            Circles=[
-                                dict(X=c.x, Y=c.y, R=c.r, C=color)
-                                for c, color in command.debug_circles
-                            ]))))
-            self.tick += 1
-
-    def on_tick(self):
-        start = time.time()
-
-        if self.tick % self.planner.skips == 0:
-            command = self.get_command()
-            self.last_command = command
-        else:
-            command = self.last_command
-
-        elapsed = time.time() - start
-        if elapsed > AVG_TICK_TIME_SECS * self.planner.skips:
-            command.add_debug_message('SLOW: {:.2f}s'.format(elapsed))
-        return command
-
-    def get_command(self):
-        # Find my biggest blob.
-        self.my_blobs.sort(key=lambda b: b.m, reverse=True)
-        me = self.my_blobs[0]
-
-        foods = self.food + self.enemies
-        dangers = self.viruses + self.enemies
-
-        command, tip = self.planner.plan(me, foods, dangers)
-
-        def dfs(node):
-            for child in node.children:
-                command.add_debug_line([node.state.me, child.state.me], 'gray')
-                dfs(child)
-
-        dfs(self.planner.root)
-
-        command.add_debug_message('t={}'.format(len(self.planner.tips)))
-
-        t = tip.state.me
-        command.add_debug_circle(Circle(t.x, t.y, 2), 'red')
-
-        return command
+            command = self.strategy.tick(tick, data)
+            self.print_command(command)
+            tick += 1
 
     def read_config(self):
         config = self.read_json()
         for key, value in config.items():
             setattr(Config, key, value)
 
+    def read_tick_data(self):
+        try:
+            data = self.read_json()
+        except EOFError:
+            return False
+        return self.parse_tick_data(data)
+
     def read_json(self):
         return json.loads(input())
 
-    def parse_blobs(self, data):
-        self.my_blobs = [
+    def print_command(self, command):
+        output = dict(X=command.x, Y=command.y, Debug=command.debug_message)
+        if self.debug:
+            output['Draw'] = dict(
+                Lines=[
+                    dict(P=[dict(X=p.x, Y=p.y) for p in points], C=color)
+                    for points, color in command.debug_lines
+                ],
+                Circles=[
+                    dict(X=c.x, Y=c.y, R=c.r, C=color)
+                    for c, color in command.debug_circles
+                ])
+        print(json.dumps(output))
+
+    def parse_tick_data(self, data):
+        my_blobs = [
             Me(
                 id=blob.get('Id'),
                 x=blob.get('X'),
@@ -460,17 +452,17 @@ class Strategy:
                 Config.VIS_FACTOR  # TODO: Not always true.
             ) for blob in data.get('Mine', [])
         ]
-        self.food = []
-        self.viruses = []
-        self.enemies = []
+        food = []
+        viruses = []
+        enemies = []
         for obj in data.get('Objects', []):
             t = obj.get('T')
             if t == 'F':
-                self.food.append(Food(obj.get('X'), obj.get('Y')))
+                food.append(Food(obj.get('X'), obj.get('Y')))
             elif t == 'E':
-                self.food.append(Ejection(obj.get('X'), obj.get('Y')))
+                food.append(Ejection(obj.get('X'), obj.get('Y')))
             elif t == 'V':
-                self.viruses.append(
+                viruses.append(
                     Virus(
                         id=obj.get('Id'),
                         x=obj.get('X'),
@@ -479,7 +471,7 @@ class Strategy:
             elif t == 'P':
                 # TODO: Not always true.
                 vision_radius = obj.get('R') * Config.VIS_FACTOR
-                self.enemies.append(
+                enemies.append(
                     Enemy(
                         id=obj.get('Id'),
                         x=obj.get('X'),
@@ -489,9 +481,10 @@ class Strategy:
                         vision_radius=vision_radius))
             else:
                 raise ValueError('unknown object type')
+        return (my_blobs, food, viruses, enemies)
 
 
-def get_logger():
+def get_logger(debug):
     logger = logging.getLogger('Strategy')
     logger.setLevel(logging.DEBUG)
     formatter = logging.Formatter(
@@ -502,7 +495,7 @@ def get_logger():
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
-    if os.getenv('DEBUG_STRATEGY'):
+    if debug:
         fh = logging.FileHandler('/tmp/log.txt', 'w')
         fh.setLevel(logging.DEBUG)
         fh.setFormatter(formatter)
@@ -511,5 +504,16 @@ def get_logger():
     return logger
 
 
+def main():
+    debug = bool(os.getenv('DEBUG_STRATEGY'))
+    logger = get_logger(debug)
+    strategy = Strategy(logger, debug)
+    if debug:
+        strategy = TimingStrategy(strategy)
+    interactor = Interactor(strategy, logger, debug)
+    interactor.run()
+
+
 if __name__ == '__main__':
-    Strategy(logger=get_logger()).run()
+    main()
+
