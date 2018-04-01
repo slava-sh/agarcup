@@ -7,9 +7,9 @@ import time
 import collections
 
 ROOT_EPS = 1
-MIN_EXPANSIONS_PER_TICK = 3
-MIN_TIPS = 100
-ANGLES = [0, math.pi / 2, -math.pi / 2, math.pi]
+MIN_TIPS = 1
+EXPAND_ANGLES = [0, math.pi / 2, -math.pi / 2, math.pi]
+DISCOVERY_ANGLES = np.linspace(0, 2 * math.pi, 4 * 3)[:-1]
 
 SKIP_DISTANCE = 20
 
@@ -265,9 +265,7 @@ class Strategy:
             self.tips = {}
 
         skips = max(1, int(SKIP_DISTANCE / me.max_speed()))
-        i = 0
-        while i < MIN_EXPANSIONS_PER_TICK or len(self.tips) < MIN_TIPS:
-            i += 1
+        while len(self.tips) < MIN_TIPS:
             self.expand_child(self.root, skips)
 
         if not self.commands:
@@ -276,13 +274,14 @@ class Strategy:
             for command in self.root.commands:
                 self.commands.append(Command(command.x, command.y))
             self.debug_tip = tip
+            self.add_expandable_nodes(me, skips)
 
         command = self.commands.popleft()
         if self.debug:
 
             def go(node):
                 for child in node.children:
-                    if child.expandable:
+                    if True or child.children:
                         command.add_debug_line([node.state.me, child.state.me],
                                                'black', 0.3)
                     go(child)
@@ -345,7 +344,7 @@ class Strategy:
         node.expandable = False
         delta_score_sum = 0
         delta_size = 0
-        for angle in ANGLES:
+        for angle in EXPAND_ANGLES:
             me = node.state.me
             v = Point.from_polar(Config.SPEED_FACTOR, me.v.angle() + angle)
             command = Command.go_to(me + v)
@@ -361,6 +360,23 @@ class Strategy:
             node.subtree_score_sum += delta_score_sum
             node.subtree_size += delta_size
             node = node.parent
+
+    def add_expandable_nodes(self, me, skips):
+        for angle in DISCOVERY_ANGLES:
+            v = Point.from_polar(Config.SPEED_FACTOR, me.v.angle() + angle)
+            node = self.root
+            while (me.can_see(node.state.me) and
+                   (node.parent is None or
+                    node.parent.state.me.qdist(node.state.me) > ROOT_EPS**2)):
+                command = Command.go_to(node.state.me + v)
+                commands = [command] * skips
+                child = self.new_tip(
+                    state=self.predict_states(node.state, commands),
+                    parent=node,
+                    commands=commands)
+                node.children.append(child)  # last_node is still expandable.
+                self.remove_tip(node)
+                node = child
 
     def get_next_root(self, tip):
         node = tip
