@@ -6,19 +6,23 @@ import numpy as np
 import time
 import collections
 
+ROOT_EPS = 1
 MAX_EXPANSIONS = 5
 NUM_DIRECTIONS = 4 * 1
-SAFETY_MARGIN_FACTOR = 2.5
-SAFETY_MARGIN_PENALTY = -3
+
 MIN_SKIPS = 5
 MIN_SKIPS_MASS = 40
 MAX_SKIPS = 100
 MAX_SKIPS_MASS = 500
+
+SPEED_REWARD_FACTOR = 0.01
+
+SAFETY_MARGIN_FACTOR = 2.5
+SAFETY_MARGIN_PENALTY = -3
+
 HOTNESS_STEP = 5
 HOTNESS_PER_TICK = 0.1
 MAX_HOTNESS = 5
-MAX_SPEED_REWARD = 5
-ROOT_EPS = 1
 
 
 class Config:
@@ -202,21 +206,21 @@ class Node:
 
     def compute_tip_score(self, dangers, hotness):
         me = self.state.me
-        score = me.m * 100
+        score = me.m
 
         #score += hotness[int(me.x / HOTNESS_STEP)][int(me.y / HOTNESS_STEP)]
-        #score += min(MAX_SPEED_REWARD, me.v.length())
+        score += me.v.length() * SPEED_REWARD_FACTOR
 
-        #SAFETY_MARGIN = me.r * SAFETY_MARGIN_FACTOR
-        #if me.x < SAFETY_MARGIN or me.x > Config.GAME_WIDTH - SAFETY_MARGIN:
-        #    score += SAFETY_MARGIN_PENALTY
-        #if me.y < SAFETY_MARGIN or me.y > Config.GAME_HEIGHT - SAFETY_MARGIN:
-        #    score += SAFETY_MARGIN_PENALTY
+        SAFETY_MARGIN = me.r * SAFETY_MARGIN_FACTOR
+        if me.x < SAFETY_MARGIN or me.x > Config.GAME_WIDTH - SAFETY_MARGIN:
+            score += SAFETY_MARGIN_PENALTY
+        if me.y < SAFETY_MARGIN or me.y > Config.GAME_HEIGHT - SAFETY_MARGIN:
+            score += SAFETY_MARGIN_PENALTY
 
-        #for danger in dangers:
-        #    if danger.id not in self.state.eaten and danger.can_hurt(me):
-        #        score = 0
-        #        break
+        for danger in dangers:
+            if danger.id not in self.state.eaten and danger.can_hurt(me):
+                score = 0
+                break
 
         score = max(0, score)
 
@@ -277,11 +281,10 @@ class Strategy:
 
         if self.root is None or (not self.commands and
                                  self.root.state.me.qdist(me) > ROOT_EPS**2):
-            if self.debug:
-                self.debug_messages.append('RESET ROOT')
-                if self.root is not None:
-                    self.debug_messages.append('dist = {}'.format(
-                        self.root.state.me.dist(me)))
+            if self.debug and self.root is not None:
+                self.debug_messages.append('RESET')
+                self.debug_messages.append('dist = {:.2f}'.format(
+                    self.root.state.me.dist(me)))
             self.root = self.new_tip(State(me))
             self.next_root = None
             self.tips = {}
@@ -324,7 +327,6 @@ class Strategy:
                     command.add_debug_circle(
                         Circle(node.state.me.x, node.state.me.y, 1), 'blue',
                         alpha)
-                #command.add_debug_circle(Circle(node.state.me.x, node.state.me.y, 1), 'red' if node.state.eaten.difference(self.root.state.eaten) else 'black')
 
             command.add_debug_circle(
                 Circle(self.root.state.me.x, self.root.state.me.y,
@@ -360,17 +362,6 @@ class Strategy:
             command.add_debug_message('max: {:.2f}'.format(max_score))
             command.add_debug_message('avg: {:.2f}'.format(
                 self.root.subtree_score()))
-            command.add_debug_message('root dist: {:.2f}'.format(
-                self.root.state.me.dist(me)))
-
-            if hasattr(self, 'next_me'):
-                e = self.next_me.me.dist(me)
-                command.add_debug_message('prediction error: {:.8f}'.format(e))
-                if e > 1e-6:
-                    command.pause = True
-                    command.add_debug_message('cmd: {!r}'.format(self.last_command))
-            self.next_me = self.predict_state(State(me), command)
-            self.last_command = command
 
             for message in self.debug_messages:
                 command.add_debug_message(message)
@@ -484,6 +475,16 @@ class Strategy:
         return State(
             Me(id=me.id, x=new_pos.x, y=new_pos.y, r=new_r, m=new_m, v=new_v),
             state.eaten.union(new_eaten))
+
+    def debug_prediction_error(self, me, command):
+        if hasattr(self, 'next_me'):
+            e = self.next_me.me.dist(me)
+            command.add_debug_message('prediction error: {:.8f}'.format(e))
+            if e > 1e-6:
+                command.pause = True
+                command.add_debug_message('cmd: {!r}'.format(self.last_command))
+        self.next_me = self.predict_state(State(me), command)
+        self.last_command = command
 
 
 def find_tips(roots):
