@@ -196,10 +196,10 @@ class Command(Point):
 
 
 class Node:
-    def __init__(self, state, parent=None, command=None, children=None):
+    def __init__(self, state, parent=None, commands=None, children=None):
         self.state = state
         self.parent = parent
-        self.command = command
+        self.commands = commands
         self.children = children or []
         self.score = 0
         self.subtree_score_sum = 0
@@ -298,10 +298,8 @@ class Strategy:
         if not self.commands:
             tip = max(self.tips.values(), key=lambda node: node.score)
             self.next_root = self.get_next_root(tip)
-            for _ in range(self.skips):
-                self.commands.append(
-                    Command(self.next_root.command.x,
-                            self.next_root.command.y))
+            for command in self.next_root.commands:
+                self.commands.append(Command(command.x, command.y))
             self.debug_tip = tip
 
         command = self.commands.popleft()
@@ -377,10 +375,11 @@ class Strategy:
             me = tip.state.me
             v = Point.from_polar(Config.SPEED_FACTOR, me.v.angle() + angle)
             command = Command.go_to(me + v)
+            commands = [command] * self.skips
             child = self.new_tip(
-                state=self.predict_states(tip.state, [command] * self.skips),
+                state=self.predict_states(tip.state, commands),
                 parent=tip,
-                command=command)
+                commands=commands)
             tip.children.append(child)
         self.remove_tip(tip)
 
