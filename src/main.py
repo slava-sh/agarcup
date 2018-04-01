@@ -189,7 +189,7 @@ class Node:
         self.children = children or []
         self.score = 0
         self.subtree_score_sum = 0
-        self.subtree_size = 0
+        self.subtree_size = 1
 
     def compute_tip_score(self, dangers):
         me = self.state.me
@@ -212,7 +212,6 @@ class Node:
 
         self.score = score
         self.subtree_score_sum = self.score
-        self.subtree_size = 1
 
     def subtree_score(self):
         return self.subtree_score_sum / self.subtree_size
@@ -283,19 +282,25 @@ class Strategy:
                         alpha)
             command.add_debug_circle(
                 Circle(tip.state.me.x, tip.state.me.y, 2), 'red')
-            command.add_debug_message('t={}'.format(len(self.tips)))
             for food in food:
                 command.add_debug_circle(
                     Circle(food.x, food.y, food.r + 2), 'green', 0.5)
             for danger in viruses + enemies:
                 command.add_debug_circle(
                     Circle(danger.x, danger.y, danger.r + 2), 'red', 0.1)
+            command.add_debug_message('avg={:.1f}'.format(self.root.subtree_score()))
+            command.add_debug_message('t={}'.format(len(self.tips)))
+            command.add_debug_message('n={}'.format(self.root.subtree_size))
         return command
 
     def select_tip(self, node):
         while node.children:
             p = np.array([child.subtree_score() for child in node.children])
-            p /= np.sum(p)
+            p_sum = np.sum(p)
+            if p_sum == 0:
+                p[0] = 1.0
+            else:
+                p /= p_sum
             i = np.random.choice(np.arange(len(node.children)), p=p)
             node = node.children[i]
         return node
@@ -452,7 +457,7 @@ class Interactor:
 
     def print_command(self, command):
         output = dict(
-            X=command.x, Y=command.y, Debug='; '.join(command.debug_messages))
+            X=command.x, Y=command.y, Debug=' '.join(command.debug_messages))
         if self.debug:
             output['Draw'] = dict(
                 Lines=[
