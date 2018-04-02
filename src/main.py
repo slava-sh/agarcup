@@ -165,7 +165,8 @@ class Me(Player):
         self.r = Config.RADIUS_FACTOR * math.sqrt(self.m)
 
     def limit_speed(self):
-        self.v = self.v.with_length(min(self.max_speed(), self.speed()))
+        if not self.is_fast:
+            self.v = self.v.with_length(min(self.max_speed(), self.speed()))
 
     def update_v(self, command):
         self.v = self.v + ((command - self).unit() * self.max_speed() - self.v
@@ -339,7 +340,10 @@ class Strategy:
             tip = max(self.tips.values(), key=lambda node: node.score)
             self.advance_root(self.get_next_root(tip))
             for command in self.root.commands:
-                self.commands.append(copy.copy(command))
+                self.commands.append(Command(
+                    x=command.x,
+                    y=command.y,
+                    split=command.split))
             self.debug_tip = tip
             self.add_expandable_nodes(skips)
 
@@ -435,15 +439,26 @@ class Strategy:
 
     def add_expandable_nodes(self, skips):
         me = self.root.state.me()
-        for angle in DISCOVERY_ANGLES:
+        for angle in list(DISCOVERY_ANGLES) + [None]:
+            if angle is None:
+                angle = 0
+                split = True
+                skips = int(Config.SPLIT_START_SPEED / Config.VISCOSITY) + 1
+            else:
+                split = False
+
             v = Point.from_polar(Config.SPEED_FACTOR, me.angle() + angle)
             node = self.root
             depth = 0
             while (me.can_see(node.state.me())
                    and (node.parent is None or node.parent.state.me().qdist(
                        node.state.me()) > ROOT_EPS**2)):
-                command = Command.go_to(node.state.me() + v)
-                commands = [command] * skips
+                commands = [
+                    Command.go_to(
+                        node.state.me() + v,
+                        split=split and depth == 0 and i == 0)
+                    for i in range(skips)
+                ]
                 child = self.new_tip(
                     state=self.predict_states(node.state, commands),
                     parent=node,
@@ -519,8 +534,7 @@ class Strategy:
         # update_by_state: update r, limit v, split.
         for me in my_blobs:
             me.update_r()
-            if not me.is_fast:
-                me.limit_speed()
+            me.limit_speed()
         if command.split:
             my_blobs = [new_me for me in my_blobs for new_me in self.split(me)]
 
