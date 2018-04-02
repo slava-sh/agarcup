@@ -14,7 +14,7 @@ EXPAND_ANGLES = [0, math.pi / 2, -math.pi / 2, math.pi]
 DISCOVERY_ANGLES = np.linspace(0, 2 * math.pi, 4 * 3)[:-1]
 MAX_POWER_BLOBS = 1
 
-SKIP_DISTANCE = 20
+SKIP_DISTANCE = 40
 
 SPEED_REWARD_FACTOR = 0.01
 
@@ -345,18 +345,22 @@ class Strategy:
             for command in self.root.commands:
                 self.commands.append(
                     Command(x=command.x, y=command.y, split=command.split))
-            self.debug_tip = tip
+            if self.debug:
+                self.debug_tip = tip
+                self.debug_messages.append('new tree: {}'.format(self.root.subtree_size))
             self.add_expandable_nodes(skips)
 
         command = self.commands.popleft()
         if self.debug:
 
             def go(node):
+                for me in node.state.my_blobs:
+                    command.add_debug_circle(
+                        Circle(me.x, me.y, 1), 'black', 0.3)
                 for child in node.children:
-                    if True or child.children:
-                        for n, c in zip(node.state.my_blobs,
-                                        child.state.my_blobs):
-                            command.add_debug_line([n, c], 'black', 0.3)
+                    for n, c in zip(node.state.my_blobs,
+                                    child.state.my_blobs):
+                        command.add_debug_line([n, c], 'black', 0.3)
                     go(child)
 
             go(self.root)
