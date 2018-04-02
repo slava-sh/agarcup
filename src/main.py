@@ -241,8 +241,8 @@ class Command(Point):
         self.debug_circles = debug_circles or []
 
     @staticmethod
-    def go_to(target):
-        return Command(target.x, target.y)
+    def go_to(target, **kwargs):
+        return Command(target.x, target.y, **kwargs)
 
     def add_debug_message(self, debug_message):
         self.debug_messages.append(debug_message)
@@ -344,10 +344,6 @@ class Strategy:
             self.add_expandable_nodes(skips)
 
         command = self.commands.popleft()
-        if tick % 50 == 0 and me.can_split():
-            command.split = True
-            command.pause = True
-            self.debug_messages.append('SPLIT')
         if self.debug:
 
             def go(node):
@@ -536,6 +532,8 @@ class Strategy:
         return State(tick, my_blobs, eaten)
 
     def split(self, me):
+        if not me.can_split():
+            return [me]
         m = me.m / 2
         v = Point.from_polar(Config.SPLIT_START_SPEED, me.angle())
         return [
@@ -561,24 +559,26 @@ class Strategy:
             for me, next_me in zip(my_blobs, self.next_blobs):
                 e = next_me.dist(me)
                 command.add_debug_message(
-                    'prediction error: {:.8f} {} {}'.
-                    format(e, next_me.is_fast, me.is_fast))
-                command.add_debug_message( 'me.m = {:.8f}'.  format(me.m))
-                command.add_debug_message( 'ne.m = {:.8f}'.  format(next_me.m))
-                command.add_debug_message( 'me.speed = {:.8f}'.  format(me.speed()))
-                command.add_debug_message( 'ne.speed = {:.8f}'.  format(next_me.speed()))
-                command.add_debug_message( 'me.max_speed = {:.8f}'.  format(me.max_speed()))
-                command.add_debug_message( 'ne.max_speed = {:.8f}'.  format(next_me.max_speed()))
+                    'prediction error: {:.8f} {} {}'.format(
+                        e, next_me.is_fast, me.is_fast))
+                command.add_debug_message('me.m = {:.8f}'.format(me.m))
+                command.add_debug_message('ne.m = {:.8f}'.format(next_me.m))
+                command.add_debug_message('me.speed = {:.8f}'.format(
+                    me.speed()))
+                command.add_debug_message('ne.speed = {:.8f}'.format(
+                    next_me.speed()))
+                command.add_debug_message('me.max_speed = {:.8f}'.format(
+                    me.max_speed()))
+                command.add_debug_message('ne.max_speed = {:.8f}'.format(
+                    next_me.max_speed()))
                 if e > 1e-6 and len(my_blobs) > 1:
                     command.pause = True
                     command.add_debug_message('cmd: {!r}'.format(
                         self.last_command))
-        self.next_blobs = self.predict_state(State(tick, my_blobs), command).my_blobs
+        self.next_blobs = self.predict_state(State(tick, my_blobs),
+                                             command).my_blobs
         for nb in self.next_blobs:
-            command.add_debug_circle(
-                Circle(nb.x,
-                       nb.y,
-                       nb.r), 'cyan', 0.5)
+            command.add_debug_circle(Circle(nb.x, nb.y, nb.r), 'cyan', 0.5)
         self.last_command = command
 
 
