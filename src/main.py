@@ -10,7 +10,7 @@ import copy
 ROOT_EPS = 1
 DISCOVERY_ANGLES = np.linspace(0, 2 * math.pi, 4 * 3)[:-1]
 MAX_POWER_BLOBS = 1
-MAX_DEPTH = 10
+MAX_DEPTH = 7
 
 SKIP_DISTANCE = 40
 
@@ -207,7 +207,7 @@ class Food(Blob):
         super().__init__(id, x, y, r=Config.FOOD_RADIUS, m=Config.FOOD_MASS)
 
 
-class Ejection(Food):
+class Ejection(Blob):
     def __init__(self, id, x, y):
         super().__init__(
             id, x, y, r=Config.EJECTION_RADIUS, m=Config.EJECTION_MASS)
@@ -300,7 +300,6 @@ class Strategy:
         self.logger = logger
         self.debug = debug
         self.root = None
-        self.tips = {}
         self.commands = collections.deque([])
 
     def tick(self, tick, data):
@@ -326,17 +325,19 @@ class Strategy:
                 self.debug_messages.append('dist = {:.2f}'.format(
                     self.root.state.me().dist(me)))
             self.root = self.new_tip(State(tick, my_blobs))
-            self.tips = {}
             self.add_nodes(self.root, skips)
 
         if not self.commands:
-            tip = max(self.tips.values(), key=lambda node: node.score)
-            self.advance_root(self.get_next_root(tip))
+            nodes = find_nodes(self.root)
+            target = max(
+                (node for node in nodes if node is not self.root),
+                key=lambda node: node.score)
+            if self.debug:
+                self.debug_tip = target
+            self.advance_root(self.get_next_root(target))
             for command in self.root.commands:
                 self.commands.append(
                     Command(x=command.x, y=command.y, split=command.split))
-            if self.debug:
-                self.debug_tip = tip
             self.add_nodes(self.root, skips)
 
         command = self.commands.popleft()
@@ -355,11 +356,6 @@ class Strategy:
                     go(child)
 
             go(self.root)
-
-            for tip in self.tips.values():
-                for me in tip.state.my_blobs:
-                    command.add_debug_circle(
-                        Circle(me.x, me.y, 1), 'black', 0.3)
 
             for me in self.root.state.my_blobs:
                 command.add_debug_circle(
@@ -383,7 +379,6 @@ class Strategy:
 
             command.add_debug_message('skips: {}'.format(skips))
             command.add_debug_message('queue: {}'.format(len(self.commands)))
-            command.add_debug_message('tips: {}'.format(len(self.tips)))
             command.add_debug_message('tree: {}'.format(tree_size))
 
             if command.split:
@@ -398,10 +393,9 @@ class Strategy:
             for angle in DISCOVERY_ANGLES:
                 v = Point.from_polar(Config.SPEED_FACTOR, me.angle() + angle)
                 node = root
-                depth = 1
-                while (node.state.me() is not None
-                       and me.can_see(node.state.me()) and
-                       depth <= MAX_DEPTH):
+                for _ in range(MAX_DEPTH):
+                    if node.state.me() is None or not me.can_see(node.state.me()):
+                        break
                     commands = [
                         Command.go_to(node.state.me() + v)
                         for i in range(skips)
@@ -411,12 +405,10 @@ class Strategy:
                         parent=node,
                         commands=commands)
                     node.children.append(child)
-                    self.remove_tip(node)
                     node = child
-                    depth += 1
 
-    def get_next_root(self, tip):
-        node = tip
+    def get_next_root(self, target):
+        node = target
         while node.parent is not None and node.parent.parent is not None:
             node = node.parent
         return node
@@ -425,22 +417,13 @@ class Strategy:
         not_roots = [
             node for node in self.root.children if node is not next_root
         ]
-        for tip in find_tips(not_roots):
-            self.remove_tip(tip)
         self.root = next_root
         self.root.parent = None
 
     def new_tip(self, *args, **kwargs):
         tip = Node(*args, **kwargs)
         tip.compute_tip_score()
-        self.tips[id(tip)] = tip
         return tip
-
-    def remove_tip(self, tip):
-        try:
-            del self.tips[id(tip)]
-        except KeyError:
-            pass
 
     def predict_states(self, state, commands):
         for command in commands:
@@ -570,18 +553,19 @@ def find_nearest_me(target, predicate, my_blobs):
         default=(None, None))
 
 
-def find_tips(roots):
-    def go(node, tips):
-        if node.children:
-            for child in node.children:
-                go(child, tips)
-        else:
-            tips.append(node)
+def find_nodes(roots):
+    if not isinstance(roots, collections.Iterable):
+        roots = [roots]
 
-    tips = []
+    def go(node, nodes):
+        nodes.append(node)
+        for child in node.children:
+            go(child, nodes)
+
+    nodes = []
     for root in roots:
-        go(root, tips)
-    return tips
+        go(root, nodes)
+    return nodes
 
 
 class TimingStrategy:
