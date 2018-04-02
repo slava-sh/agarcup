@@ -372,9 +372,10 @@ class Strategy:
                     command.add_debug_line([n, p], 'black')
                 node = node.parent
 
-            for food in food:
-                command.add_debug_circle(
-                    Circle(food.x, food.y, food.r + 2), 'green', 0.5)
+            for food in food + ejections + viruses + enemies:
+                if food.id in self.debug_tip.state.eaten:
+                    command.add_debug_circle(
+                        Circle(food.x, food.y, food.r + 2), 'green', 0.5)
             for danger in viruses + enemies:
                 command.add_debug_circle(
                     Circle(danger.x, danger.y, danger.r + 2), 'red', 0.1)
