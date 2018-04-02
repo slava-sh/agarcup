@@ -340,10 +340,8 @@ class Strategy:
             tip = max(self.tips.values(), key=lambda node: node.score)
             self.advance_root(self.get_next_root(tip))
             for command in self.root.commands:
-                self.commands.append(Command(
-                    x=command.x,
-                    y=command.y,
-                    split=command.split))
+                self.commands.append(
+                    Command(x=command.x, y=command.y, split=command.split))
             self.debug_tip = tip
             self.add_expandable_nodes(skips)
 
@@ -439,14 +437,8 @@ class Strategy:
 
     def add_expandable_nodes(self, skips):
         me = self.root.state.me()
-        for angle in list(DISCOVERY_ANGLES) + [None]:
-            if angle is None:
-                angle = 0
-                split = True
-                skips = int(Config.SPLIT_START_SPEED / Config.VISCOSITY) + 1
-            else:
-                split = False
-
+        for angle in DISCOVERY_ANGLES:
+            split = False
             v = Point.from_polar(Config.SPEED_FACTOR, me.angle() + angle)
             node = self.root
             depth = 0
