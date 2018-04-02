@@ -46,6 +46,7 @@ class Config:
     SHRINK_EVERY_TICK = 50
     MIN_SHRINK_MASS = 100
     SHRINK_FACTOR = 0.01
+    MIN_BURST_MASS = 60.0
 
 
 class Point:
@@ -113,8 +114,6 @@ class Player(Blob):
     def can_eat(self, other):
         if not (self.m > other.m * Config.MASS_EAT_FACTOR):
             return False
-        # max_dist = self.r + other.r - other.r * 2 * Config.DIAM_EAT_FACTOR
-        # return self.qdist(other) < max_dist**2
         dist = self.dist(other)
         min_r = dist - other.r + other.r * 2 * Config.DIAM_EAT_FACTOR
         return min_r < self.r
@@ -126,14 +125,17 @@ class Player(Blob):
         return other.qdist(p) < max_dist**2
 
     def can_burst(self):
-        # TODO
-        return True
+        if self.m < Config.MIN_BURST_MASS * 2:
+            return False
+        # TODO: Consider Config.MAX_FRAGS_CNT.
+        frags_cnt = int(self.m / Config.MIN_BURST_MASS)
+        return frags_cnt > 1
 
     def can_hurt(self, other):
         return self.can_eat(other)
 
     def can_split(self):
-        # TODO: Consider Config.MAX_FRAGS_CNT
+        # TODO: Consider Config.MAX_FRAGS_CNT.
         return self.m > Config.MIN_SPLIT_MASS
 
     def max_speed(self):
@@ -220,8 +222,8 @@ class Virus(Blob):
     def can_hurt(self, other):
         if other.r < self.r or not other.can_burst():
             return False
-        return self.qdist(other) < (
-            self.r * Config.RAD_HURT_FACTOR + other.r)**2
+        max_dist = self.r * Config.RAD_HURT_FACTOR + other.r
+        return self.qdist(other) < max_dist**2
 
 
 class Command(Point):
@@ -267,14 +269,12 @@ class Node:
         self.subtree_size = 1
         self.expandable = True
 
-    def compute_tip_score(self, dangers):
-        self.score = max(0,
-                         sum(
-                             self.compute_blob_score(me, dangers)
-                             for me in self.state.my_blobs))
+    def compute_tip_score(self):
+        self.score = max(
+            0, sum(self.compute_blob_score(me) for me in self.state.my_blobs))
         self.subtree_score_sum = self.score
 
-    def compute_blob_score(self, me, dangers):
+    def compute_blob_score(self, me):
         score = me.m
         score += me.speed() * SPEED_REWARD_FACTOR
 
@@ -283,11 +283,6 @@ class Node:
             score += SAFETY_MARGIN_PENALTY
         if me.y < SAFETY_MARGIN or me.y > Config.GAME_HEIGHT - SAFETY_MARGIN:
             score += SAFETY_MARGIN_PENALTY
-
-        for danger in dangers:
-            if danger.id not in self.state.eaten and danger.can_hurt(me):
-                score = 0
-                break
 
         score = max(0, score)
         return score
@@ -318,11 +313,13 @@ class Strategy:
         if self.debug:
             self.debug_messages = []
 
-        my_blobs, food, viruses, enemies = data
+        my_blobs, food, ejections, viruses, enemies = data
         my_blobs.sort(key=lambda me: (me.m, me.is_fast), reverse=True)
         me = my_blobs[0]
-        self.foods = food + enemies
-        self.dangers = viruses + enemies
+        self.food = food
+        self.ejections = ejections
+        self.viruses = viruses
+        self.enemies = enemies
 
         if self.root is None or (not self.commands and
                                  self.root.state.me().qdist(me) > ROOT_EPS**2):
@@ -352,7 +349,8 @@ class Strategy:
             def go(node):
                 for child in node.children:
                     if True or child.children:
-                        for n, c in zip(node.state.my_blobs, child.state.my_blobs):
+                        for n, c in zip(node.state.my_blobs,
+                                        child.state.my_blobs):
                             command.add_debug_line([n, c], 'black', 0.3)
                     go(child)
 
@@ -360,15 +358,18 @@ class Strategy:
 
             for tip in self.tips.values():
                 for me in tip.state.my_blobs:
-                    command.add_debug_circle(Circle(me.x, me.y, 1), 'black', 0.3)
+                    command.add_debug_circle(
+                        Circle(me.x, me.y, 1), 'black', 0.3)
 
             for me in self.root.state.my_blobs:
-                command.add_debug_circle(Circle(me.x, me.y, me.r), 'green', 0.1)
+                command.add_debug_circle(
+                    Circle(me.x, me.y, me.r), 'green', 0.1)
             for me in self.debug_tip.state.my_blobs:
                 command.add_debug_circle(Circle(me.x, me.y, 2), 'red')
             node = self.debug_tip
             while node.parent is not None:
-                for n, p in zip(node.state.my_blobs, node.parent.state.my_blobs):
+                for n, p in zip(node.state.my_blobs,
+                                node.parent.state.my_blobs):
                     command.add_debug_line([n, p], 'black')
                 node = node.parent
 
@@ -438,8 +439,8 @@ class Strategy:
                 v = Point.from_polar(Config.SPEED_FACTOR, me.angle() + angle)
                 node = self.root
                 depth = 0
-                while (me.can_see(node.state.me())
-                       and (node.parent is None or node.parent.state.me().qdist(
+                while (me.can_see(node.state.me()) and
+                       (node.parent is None or node.parent.state.me().qdist(
                            node.state.me()) > ROOT_EPS**2)):
                     commands = [
                         Command.go_to(
@@ -451,7 +452,8 @@ class Strategy:
                         state=self.predict_states(node.state, commands),
                         parent=node,
                         commands=commands)
-                    node.children.append(child)  # last_node is still expandable.
+                    node.children.append(
+                        child)  # last_node is still expandable.
                     self.remove_tip(node)
                     depth += 1
                     if depth < MIN_EXPANSION_DEPTH:
@@ -476,7 +478,7 @@ class Strategy:
 
     def new_tip(self, *args, **kwargs):
         tip = Node(*args, **kwargs)
-        tip.compute_tip_score(self.dangers)
+        tip.compute_tip_score()
         self.tips[id(tip)] = tip
         return tip
 
@@ -509,15 +511,27 @@ class Strategy:
 
         # who_is_eaten: update m.
         eaten = state.eaten.copy()
-        for me in my_blobs:
-            # Eating order: food, ejections, players.
-            for food in self.foods:
-                if food.id not in eaten and me.can_eat(food):
-                    eaten.add(food.id)
-                    me.m += food.m
+        for food in self.food + self.ejections + self.enemies:
+            if food.id in eaten:
+                continue
+            me = min(
+                (me for me in my_blobs if me.can_eat(food)),
+                key=lambda me: me.qdist(food),
+                default=None)
+            if me is not None:
+                eaten.add(food.id)
+                me.m += food.m
 
         # TODO: who_need_fusion.
-        # TODO: who_intersected_virus.
+
+        # who_intersected_virus.
+        for virus in self.viruses:
+            i, me = min(
+                ((i, me) for i, me in enumerate(my_blobs) if me.can_burst()),
+                key=lambda i_me: i_me[1].qdist(virus),
+                default=(None, None))
+            if me is not None:
+                my_blobs[i:i + 1] = self.burst(me, virus)
 
         # update_by_state: update r, limit v, split.
         for me in my_blobs:
@@ -558,6 +572,12 @@ class Strategy:
                is_fast=me.is_fast,
                ttf=Config.TICKS_TIL_FUSION)
         ]
+
+    def burst(self, me, virus):
+        if virus.can_hurt(me):
+            # Assume we die. TODO.
+            return []
+        return [me]
 
     def debug_prediction_error(self, tick, my_blobs, command):
         if hasattr(self, 'next_blobs'):
@@ -682,6 +702,7 @@ class Interactor:
                ttf=blob.get('TTF')) for blob in data.get('Mine', [])
         ]
         food = []
+        ejections = []
         viruses = []
         enemies = []
         for obj in data.get('Objects', []):
@@ -691,7 +712,7 @@ class Interactor:
             if t == 'F':
                 food.append(Food(id='F{:.1f}{:.1f}'.format(x, y), x=x, y=y))
             elif t == 'E':
-                food.append(
+                ejections.append(
                     Ejection(id='E{:.1f}{:.1f}'.format(x, y), x=x, y=y))
             elif t == 'V':
                 viruses.append(
@@ -711,7 +732,7 @@ class Interactor:
                         r=obj.get('R')))
             else:
                 raise Exception('unknown object type')
-        return (my_blobs, food, viruses, enemies)
+        return (my_blobs, food, ejections, viruses, enemies)
 
 
 def get_logger(debug):
