@@ -5,6 +5,7 @@ import os
 import numpy as np
 import time
 import collections
+import copy
 
 ROOT_EPS = 1
 EXPANSIONS_PER_TICK = 5
@@ -41,6 +42,9 @@ class Config:
     RAD_HURT_FACTOR = 0.66
     MIN_SPLIT_MASS = 120.0
     SPLIT_START_SPEED = 9.0
+    SHRINK_EVERY_TICK = 50
+    MIN_SHRINK_MASS = 100
+    SHRINK_FACTOR = 0.01
 
 
 class Point:
@@ -141,21 +145,59 @@ class Enemy(Player):
 
 class Me(Player):
     def __init__(self, id, x, y, m, v, is_fast=None, r=None, ttf=None):
-        if r is None:
-            r = Config.RADIUS_FACTOR * math.sqrt(m)
         super().__init__(id, x, y, r, m)
         self.v = v
+        self.ttf = ttf or 0
+        if r is None:
+            self.update_r()
         if is_fast is None:
             self.is_fast = self.speed() > self.max_speed()
         else:
             self.is_fast = is_fast
-        self.ttf = ttf or 0
 
     def speed(self):
         return self.v.length()
 
     def angle(self):
         return self.v.angle()
+
+    def update_r(self):
+        self.r = Config.RADIUS_FACTOR * math.sqrt(self.m)
+
+    def limit_speed(self):
+        self.v = self.v.with_length(min(self.max_speed(), self.speed()))
+
+    def update_v(self, command):
+        self.v = self.v + ((command - self).unit() * self.max_speed() - self.v
+                           ) * (Config.INERTION_FACTOR / self.m)
+        self.limit_speed()
+
+    def apply_v(self):
+        self.x = max(self.r, min(Config.GAME_WIDTH - self.r,
+                                 self.x + self.v.x))
+        self.y = max(self.r, min(Config.GAME_HEIGHT - self.r,
+                                 self.y + self.v.y))
+
+    def apply_viscosity(self):
+        if not self.is_fast:
+            return
+        speed = self.speed()
+        max_speed = self.max_speed()
+        if speed > max_speed:
+            speed = max(max_speed, speed - Config.VISCOSITY)
+        if speed <= max_speed:
+            self.is_fast = False
+            speed = max_speed
+        self.v = self.v.with_length(speed)
+
+    def can_shrink(self):
+        return self.m > Config.MIN_SHRINK_MASS
+
+    def shrink(self):
+        if not self.can_shrink():
+            return
+        self.m -= (self.m - Config.MIN_SHRINK_MASS) * Config.SHRINK_FACTOR
+        self.update_r()
 
 
 class Food(Blob):
@@ -253,7 +295,8 @@ class Node:
 
 
 class State:
-    def __init__(self, my_blobs, eaten=None):
+    def __init__(self, tick, my_blobs, eaten=None):
+        self.tick = tick
         self.my_blobs = my_blobs
         self.eaten = eaten or set()
 
@@ -274,7 +317,7 @@ class Strategy:
             self.debug_messages = []
 
         my_blobs, food, viruses, enemies = data
-        my_blobs.sort(key=lambda b: b.m, reverse=True)
+        my_blobs.sort(key=lambda me: (me.m, me.is_fast), reverse=True)
         me = my_blobs[0]
         self.foods = food + enemies
         self.dangers = viruses + enemies
@@ -285,7 +328,7 @@ class Strategy:
                 self.debug_messages.append('RESET')
                 self.debug_messages.append('dist = {:.2f}'.format(
                     self.root.state.me().dist(me)))
-            self.root = self.new_tip(State(my_blobs))
+            self.root = self.new_tip(State(tick, my_blobs))
             self.tips = {}
 
         skips = max(1, int(SKIP_DISTANCE / me.max_speed()))
@@ -352,10 +395,6 @@ class Strategy:
 
             for message in self.debug_messages:
                 command.add_debug_message(message)
-
-            self.debug_prediction_error(my_blobs, command)
-
-            command.add_debug_circle(Circle(command.x, command.y, 2), 'cyan')
         return command
 
     def expand_child(self, node, skips):
@@ -451,90 +490,95 @@ class Strategy:
         return state
 
     def predict_state(self, state, command):
-        if command.split:
-            my_blobs = [
-                new_me for me in state.my_blobs for new_me in self.split(me)
-            ]
-        else:
-            my_blobs = state.my_blobs
+        # TODO: Fix precision error when eating food at max speed.
+        my_blobs = [copy.copy(me) for me in state.my_blobs]
 
-        new_blobs = []
-        new_eaten = set()
+        # Following the oringial mechanic.
+        # apply_strategies: update v.
         for me in my_blobs:
-            max_speed = me.max_speed()
-            if me.is_fast:
-                speed = me.speed()
-                new_fast = speed > max_speed
-                if new_fast:
-                    speed = max(max_speed, speed - Config.VISCOSITY)
-                else:
-                    speed = max_speed
-                new_v = me.v.with_length(speed)
-                new_pos = me
-            else:
-                # TODO: Fix precision error when eating food at max speed.
-                new_fast = False
-                new_v = me.v + ((command - me).unit() * max_speed - me.v) * (
-                    Config.INERTION_FACTOR / me.m)
-                new_v = new_v.with_length(min(max_speed, new_v.length()))
+            if not me.is_fast:
+                me.update_v(command)
 
-                new_pos = me + new_v
-                new_pos.x = max(me.r, min(Config.GAME_WIDTH - me.r, new_pos.x))
-                new_pos.y = max(me.r, min(Config.GAME_HEIGHT - me.r, new_pos.y))
+        # shrink_players.
+        tick = state.tick + 1
+        if tick % Config.SHRINK_EVERY_TICK == 0:
+            for me in my_blobs:
+                me.shrink()
 
-            new_m = me.m
+        # who_is_eaten: update m.
+        eaten = state.eaten.copy()
+        for me in my_blobs:
+            # Eating order: food, ejections, players.
             for food in self.foods:
-                if food.id not in state.eaten and me.can_eat(food):
-                    new_eaten.add(food.id)
-                    new_m += food.m
+                if food.id not in eaten and me.can_eat(food):
+                    eaten.add(food.id)
+                    me.m += food.m
 
-            for danger in self.dangers:
-                if danger.id not in state.eaten and danger.can_hurt(me):
-                    # TODO: Right now we assume we die.
-                    continue
+        # TODO: who_need_fusion.
+        # TODO: who_intersected_virus.
 
-            new_blobs.append(
-                Me(id=me.id,
-                   x=new_pos.x,
-                   y=new_pos.y,
-                   m=new_m,
-                   v=new_v,
-                   is_fast=new_fast,
-                   ttf=max(0, me.ttf - 1)))
-        new_blobs.sort(key=lambda b: b.m, reverse=True)
-        return State(new_blobs, state.eaten.union(new_eaten))
+        # update_by_state: update r, limit v, split.
+        for me in my_blobs:
+            me.update_r()
+            if not me.is_fast:
+                me.limit_speed()
+        if command.split:
+            my_blobs = [new_me for me in my_blobs for new_me in self.split(me)]
+
+        # move_moveables: collide (TODO), move, apply viscosity, update ttf.
+        for me in my_blobs:
+            me.apply_v()
+            me.apply_viscosity()
+            if me.ttf > 0:
+                me.ttf -= 1
+
+        my_blobs.sort(key=lambda me: (me.m, me.is_fast), reverse=True)
+        return State(tick, my_blobs, eaten)
 
     def split(self, me):
         m = me.m / 2
         v = Point.from_polar(Config.SPLIT_START_SPEED, me.angle())
-        me1 = Me(
-            id=me.id + '+1',  # TODO: Compute correct ids.
-            x=me.x,
-            y=me.y,
-            m=m,
-            v=v,
-            is_fast=True,
-            ttf=Config.TICKS_TIL_FUSION)
-        me2 = Me(
-            id=me.id + '+2',
-            x=me.x,
-            y=me.y,
-            m=m,
-            v=me.v,
-            is_fast=me.is_fast,
-            ttf=Config.TICKS_TIL_FUSION)
-        return me1, me2
+        return [
+            Me(
+                id=me.id + '+1',  # TODO: Compute correct ids.
+                x=me.x,
+                y=me.y,
+                m=m,
+                v=v,
+                is_fast=True,
+                ttf=Config.TICKS_TIL_FUSION),
+            Me(id=me.id + '+2',
+               x=me.x,
+               y=me.y,
+               m=m,
+               v=me.v,
+               is_fast=me.is_fast,
+               ttf=Config.TICKS_TIL_FUSION)
+        ]
 
-    def debug_prediction_error(self, my_blobs, command):
-        if hasattr(self, 'next_state'):
-            for me, next_me in zip(my_blobs, self.next_state.my_blobs):
+    def debug_prediction_error(self, tick, my_blobs, command):
+        if hasattr(self, 'next_blobs'):
+            for me, next_me in zip(my_blobs, self.next_blobs):
                 e = next_me.dist(me)
-                command.add_debug_message('prediction error: {:.8f}'.format(e))
+                command.add_debug_message(
+                    'prediction error: {:.8f} {} {}'.
+                    format(e, next_me.is_fast, me.is_fast))
+                command.add_debug_message( 'me.m = {:.8f}'.  format(me.m))
+                command.add_debug_message( 'ne.m = {:.8f}'.  format(next_me.m))
+                command.add_debug_message( 'me.speed = {:.8f}'.  format(me.speed()))
+                command.add_debug_message( 'ne.speed = {:.8f}'.  format(next_me.speed()))
+                command.add_debug_message( 'me.max_speed = {:.8f}'.  format(me.max_speed()))
+                command.add_debug_message( 'ne.max_speed = {:.8f}'.  format(next_me.max_speed()))
                 if e > 1e-6 and len(my_blobs) > 1:
                     command.pause = True
                     command.add_debug_message('cmd: {!r}'.format(
                         self.last_command))
-        self.next_state = self.predict_state(State(my_blobs), command)
+        self.next_blobs = self.predict_state(State(tick, my_blobs), command).my_blobs
+        for nb in self.next_blobs:
+            command.add_debug_circle(
+                Circle(nb.x,
+                       nb.y,
+                       nb.r), 'cyan', 0.5)
         self.last_command = command
 
 
