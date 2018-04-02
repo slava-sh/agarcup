@@ -8,7 +8,7 @@ import collections
 import copy
 
 ROOT_EPS = 1
-EXPANSIONS_PER_TICK = 5
+EXPANSIONS_PER_TICK = 1
 MIN_EXPANSION_DEPTH = 3
 EXPAND_ANGLES = [0, math.pi / 2, -math.pi / 2, math.pi]
 DISCOVERY_ANGLES = np.linspace(0, 2 * math.pi, 4 * 3)[:-1]
@@ -339,7 +339,7 @@ class Strategy:
             tip = max(self.tips.values(), key=lambda node: node.score)
             self.advance_root(self.get_next_root(tip))
             for command in self.root.commands:
-                self.commands.append(Command(command.x, command.y))
+                self.commands.append(copy.copy(command))
             self.debug_tip = tip
             self.add_expandable_nodes(skips)
 
@@ -388,6 +388,9 @@ class Strategy:
                 self.root.subtree_size))
             command.add_debug_message('avg: {:.2f}'.format(
                 self.root.subtree_score()))
+
+            if command.split:
+                command.add_debug_message('SPLIT')
 
             for message in self.debug_messages:
                 command.add_debug_message(message)
