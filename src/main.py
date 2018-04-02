@@ -10,6 +10,7 @@ import copy
 ROOT_EPS = 1
 DISCOVERY_ANGLES = np.linspace(0, 2 * math.pi, 4 * 3)[:-1]
 MAX_POWER_BLOBS = 1
+MAX_DEPTH = 10
 
 SKIP_DISTANCE = 40
 
@@ -397,10 +398,10 @@ class Strategy:
             for angle in DISCOVERY_ANGLES:
                 v = Point.from_polar(Config.SPEED_FACTOR, me.angle() + angle)
                 node = root
+                depth = 1
                 while (node.state.me() is not None
                        and me.can_see(node.state.me()) and
-                       (node.parent is None or node.parent.state.me().qdist(
-                           node.state.me()) > ROOT_EPS**2)):
+                       depth <= MAX_DEPTH):
                     commands = [
                         Command.go_to(node.state.me() + v)
                         for i in range(skips)
@@ -412,6 +413,7 @@ class Strategy:
                     node.children.append(child)
                     self.remove_tip(node)
                     node = child
+                    depth += 1
 
     def get_next_root(self, tip):
         node = tip
