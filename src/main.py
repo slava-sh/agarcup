@@ -327,7 +327,8 @@ class Strategy:
         if (self.root is None or self.root.state.me() is None
                 or (not self.commands
                     and self.root.state.me().qdist(me) > ROOT_EPS**2)):
-            if self.debug and self.root is not None:
+            if (self.debug and self.root is not None
+                    and self.root.state.me() is not None):
                 self.debug_messages.append('RESET')
                 self.debug_messages.append('dist = {:.2f}'.format(
                     self.root.state.me().dist(me)))
