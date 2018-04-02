@@ -298,7 +298,10 @@ class State:
         self.eaten = eaten or set()
 
     def me(self):
-        return self.my_blobs[0]
+        try:
+            return self.my_blobs[0]
+        except IndexError:
+            return None
 
 
 class Strategy:
@@ -321,8 +324,9 @@ class Strategy:
         self.viruses = viruses
         self.enemies = enemies
 
-        if self.root is None or (not self.commands and
-                                 self.root.state.me().qdist(me) > ROOT_EPS**2):
+        if (self.root is None or self.root.state.me() is None
+                or (not self.commands
+                    and self.root.state.me().qdist(me) > ROOT_EPS**2)):
             if self.debug and self.root is not None:
                 self.debug_messages.append('RESET')
                 self.debug_messages.append('dist = {:.2f}'.format(
@@ -398,9 +402,13 @@ class Strategy:
     def expand_child(self, node, skips):
         while not node.expandable:
             node = self.select_child(node)
+            if node is None:
+                return
         self.expand_node(node, skips)
 
     def select_child(self, node):
+        if not node.children:
+            return None
         p = np.array([child.subtree_score() for child in node.children])
         p_sum = np.sum(p)
         if p_sum == 0:
@@ -417,6 +425,8 @@ class Strategy:
         delta_size = 0
         for angle in EXPAND_ANGLES:
             me = node.state.me()
+            if me is None:
+                continue
             v = Point.from_polar(Config.SPEED_FACTOR, me.angle() + angle)
             command = Command.go_to(me + v)
             commands = [command] * skips
@@ -439,7 +449,8 @@ class Strategy:
                 v = Point.from_polar(Config.SPEED_FACTOR, me.angle() + angle)
                 node = self.root
                 depth = 0
-                while (me.can_see(node.state.me()) and
+                while (node.state.me() is not None
+                       and me.can_see(node.state.me()) and
                        (node.parent is None or node.parent.state.me().qdist(
                            node.state.me()) > ROOT_EPS**2)):
                     commands = [
@@ -514,22 +525,24 @@ class Strategy:
         for food in self.food + self.ejections + self.enemies:
             if food.id in eaten:
                 continue
-            me = min(
-                (me for me in my_blobs if me.can_eat(food)),
-                key=lambda me: me.qdist(food),
-                default=None)
+            i, me = find_nearest_me(food, lambda me: me.can_eat(food),
+                                    my_blobs)
             if me is not None:
                 eaten.add(food.id)
                 me.m += food.m
+        for enemy in self.enemies:
+            if enemy.id in eaten:
+                continue
+            i, me = find_nearest_me(enemy, lambda me: enemy.can_eat(me),
+                                    my_blobs)
+            if me is not None:
+                del my_blobs[i]  # Die.
 
         # TODO: who_need_fusion.
 
         # who_intersected_virus.
         for virus in self.viruses:
-            i, me = min(
-                ((i, me) for i, me in enumerate(my_blobs) if me.can_burst()),
-                key=lambda i_me: i_me[1].qdist(virus),
-                default=(None, None))
+            i, me = find_nearest_me(virus, lambda me: me.can_burst(), my_blobs)
             if me is not None:
                 my_blobs[i:i + 1] = self.burst(me, virus)
 
@@ -605,6 +618,13 @@ class Strategy:
         for nb in self.next_blobs:
             command.add_debug_circle(Circle(nb.x, nb.y, nb.r), 'cyan', 0.5)
         self.last_command = command
+
+
+def find_nearest_me(target, predicate, my_blobs):
+    return min(
+        ((i, me) for i, me in enumerate(my_blobs) if predicate(me)),
+        key=lambda i_me: i_me[1].qdist(target),
+        default=(None, None))
 
 
 def find_tips(roots):
