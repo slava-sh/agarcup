@@ -349,8 +349,7 @@ class Strategy:
                     command.add_debug_circle(
                         Circle(me.x, me.y, 1), 'black', 0.3)
                 for child in node.children:
-                    for n, c in zip(node.state.my_blobs,
-                                    child.state.my_blobs):
+                    for n, c in zip(node.state.my_blobs, child.state.my_blobs):
                         command.add_debug_line([n, c], 'black', 0.3)
                     go(child)
 
@@ -588,12 +587,15 @@ class TimingStrategy:
     def __init__(self, strategy):
         self.strategy = strategy
 
-    def tick(self, *args, **kwargs):
-        start = time.time()
-        command = self.strategy.tick(*args, **kwargs)
-        elapsed = time.time() - start
-        if elapsed > self.AVG_TICK_TIME_SECS:
-            command.add_debug_message('SLOW: {:.2f}s'.format(elapsed))
+    def tick(self, tick, *args, **kwargs):
+        if tick == 0:
+            self.start = time.time()
+        command = self.strategy.tick(tick, *args, **kwargs)
+        elapsed = time.time() - self.start
+        expected = self.AVG_TICK_TIME_SECS * (tick + 1)
+        if elapsed > expected:
+            command.add_debug_message(
+                'SLOW: {:.2f}s'.format(elapsed - expected))
         return command
 
 
