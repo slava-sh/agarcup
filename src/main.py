@@ -12,6 +12,7 @@ EXPANSIONS_PER_TICK = 1
 MIN_EXPANSION_DEPTH = 3
 EXPAND_ANGLES = [0, math.pi / 2, -math.pi / 2, math.pi]
 DISCOVERY_ANGLES = np.linspace(0, 2 * math.pi, 4 * 3)[:-1]
+MAX_POWER_BLOBS = 3
 
 SKIP_DISTANCE = 20
 
@@ -351,29 +352,24 @@ class Strategy:
             def go(node):
                 for child in node.children:
                     if True or child.children:
-                        command.add_debug_line(
-                            [node.state.me(),
-                             child.state.me()], 'black', 0.3)
+                        for n, c in zip(node.state.my_blobs, child.state.my_blobs):
+                            command.add_debug_line([n, c], 'black', 0.3)
                     go(child)
 
             go(self.root)
 
             for tip in self.tips.values():
-                command.add_debug_circle(
-                    Circle(tip.state.me().x,
-                           tip.state.me().y, 1), 'black', 0.3)
+                for me in tip.state.my_blobs:
+                    command.add_debug_circle(Circle(me.x, me.y, 1), 'black', 0.3)
 
-            command.add_debug_circle(
-                Circle(self.root.state.me().x,
-                       self.root.state.me().y,
-                       self.root.state.me().r), 'green', 0.1)
-            command.add_debug_circle(
-                Circle(self.debug_tip.state.me().x,
-                       self.debug_tip.state.me().y, 2), 'red')
+            for me in self.root.state.my_blobs:
+                command.add_debug_circle(Circle(me.x, me.y, me.r), 'green', 0.1)
+            for me in self.debug_tip.state.my_blobs:
+                command.add_debug_circle(Circle(me.x, me.y, 2), 'red')
             node = self.debug_tip
             while node.parent is not None:
-                command.add_debug_line(
-                    [node.state.me(), node.parent.state.me()], 'black')
+                for n, p in zip(node.state.my_blobs, node.parent.state.my_blobs):
+                    command.add_debug_line([n, p], 'black')
                 node = node.parent
 
             for food in food:
@@ -436,32 +432,32 @@ class Strategy:
             node = node.parent
 
     def add_expandable_nodes(self, skips):
-        me = self.root.state.me()
-        for angle in DISCOVERY_ANGLES:
-            split = False
-            v = Point.from_polar(Config.SPEED_FACTOR, me.angle() + angle)
-            node = self.root
-            depth = 0
-            while (me.can_see(node.state.me())
-                   and (node.parent is None or node.parent.state.me().qdist(
-                       node.state.me()) > ROOT_EPS**2)):
-                commands = [
-                    Command.go_to(
-                        node.state.me() + v,
-                        split=split and depth == 0 and i == 0)
-                    for i in range(skips)
-                ]
-                child = self.new_tip(
-                    state=self.predict_states(node.state, commands),
-                    parent=node,
-                    commands=commands)
-                node.children.append(child)  # last_node is still expandable.
-                self.remove_tip(node)
-                depth += 1
-                if depth < MIN_EXPANSION_DEPTH:
-                    child.expandable = False
-                node = child
-            node.expandable = True
+        for me in self.root.state.my_blobs[:MAX_POWER_BLOBS]:
+            for angle in DISCOVERY_ANGLES:
+                split = False
+                v = Point.from_polar(Config.SPEED_FACTOR, me.angle() + angle)
+                node = self.root
+                depth = 0
+                while (me.can_see(node.state.me())
+                       and (node.parent is None or node.parent.state.me().qdist(
+                           node.state.me()) > ROOT_EPS**2)):
+                    commands = [
+                        Command.go_to(
+                            node.state.me() + v,
+                            split=split and depth == 0 and i == 0)
+                        for i in range(skips)
+                    ]
+                    child = self.new_tip(
+                        state=self.predict_states(node.state, commands),
+                        parent=node,
+                        commands=commands)
+                    node.children.append(child)  # last_node is still expandable.
+                    self.remove_tip(node)
+                    depth += 1
+                    if depth < MIN_EXPANSION_DEPTH:
+                        child.expandable = False
+                    node = child
+                node.expandable = True
 
     def get_next_root(self, tip):
         node = tip
