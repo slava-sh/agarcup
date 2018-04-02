@@ -12,7 +12,7 @@ EXPANSIONS_PER_TICK = 1
 MIN_EXPANSION_DEPTH = 3
 EXPAND_ANGLES = [0, math.pi / 2, -math.pi / 2, math.pi]
 DISCOVERY_ANGLES = np.linspace(0, 2 * math.pi, 4 * 3)[:-1]
-MAX_POWER_BLOBS = 3
+MAX_POWER_BLOBS = 1
 
 SKIP_DISTANCE = 20
 
