@@ -8,9 +8,6 @@ import collections
 import copy
 
 ROOT_EPS = 1
-EXPANSIONS_PER_TICK = 1
-MIN_EXPANSION_DEPTH = 3
-EXPAND_ANGLES = [0, math.pi / 2, -math.pi / 2, math.pi]
 DISCOVERY_ANGLES = np.linspace(0, 2 * math.pi, 4 * 3)[:-1]
 MAX_POWER_BLOBS = 1
 
@@ -265,14 +262,10 @@ class Node:
         self.commands = commands
         self.children = children or []
         self.score = 0
-        self.subtree_score_sum = 0
-        self.subtree_size = 1
-        self.expandable = True
 
     def compute_tip_score(self):
         self.score = max(
             0, sum(self.compute_blob_score(me) for me in self.state.my_blobs))
-        self.subtree_score_sum = self.score
 
     def compute_blob_score(self, me):
         score = me.m
@@ -286,9 +279,6 @@ class Node:
 
         score = max(0, score)
         return score
-
-    def subtree_score(self):
-        return self.subtree_score_sum / self.subtree_size
 
 
 class State:
@@ -324,6 +314,8 @@ class Strategy:
         self.viruses = viruses
         self.enemies = enemies
 
+        skips = max(1, int(SKIP_DISTANCE / me.max_speed()))
+
         if (self.root is None or self.root.state.me() is None
                 or (not self.commands
                     and self.root.state.me().qdist(me) > ROOT_EPS**2)):
@@ -334,10 +326,7 @@ class Strategy:
                     self.root.state.me().dist(me)))
             self.root = self.new_tip(State(tick, my_blobs))
             self.tips = {}
-
-        skips = max(1, int(SKIP_DISTANCE / me.max_speed()))
-        for _ in range(EXPANSIONS_PER_TICK):
-            self.expand_child(self.root, skips)
+            self.add_nodes(self.root, skips)
 
         if not self.commands:
             tip = max(self.tips.values(), key=lambda node: node.score)
@@ -347,13 +336,15 @@ class Strategy:
                     Command(x=command.x, y=command.y, split=command.split))
             if self.debug:
                 self.debug_tip = tip
-                self.debug_messages.append('new tree: {}'.format(self.root.subtree_size))
-            self.add_expandable_nodes(skips)
+            self.add_nodes(self.root, skips)
 
         command = self.commands.popleft()
         if self.debug:
+            tree_size = 0
 
             def go(node):
+                nonlocal tree_size
+                tree_size += 1
                 for me in node.state.my_blobs:
                     command.add_debug_circle(
                         Circle(me.x, me.y, 1), 'black', 0.3)
@@ -392,10 +383,7 @@ class Strategy:
             command.add_debug_message('skips: {}'.format(skips))
             command.add_debug_message('queue: {}'.format(len(self.commands)))
             command.add_debug_message('tips: {}'.format(len(self.tips)))
-            command.add_debug_message('tree: {}'.format(
-                self.root.subtree_size))
-            command.add_debug_message('avg: {:.2f}'.format(
-                self.root.subtree_score()))
+            command.add_debug_message('tree: {}'.format(tree_size))
 
             if command.split:
                 command.add_debug_message('SPLIT')
@@ -404,78 +392,26 @@ class Strategy:
                 command.add_debug_message(message)
         return command
 
-    def expand_child(self, node, skips):
-        while not node.expandable:
-            node = self.select_child(node)
-            if node is None:
-                return
-        self.expand_node(node, skips)
-
-    def select_child(self, node):
-        if not node.children:
-            return None
-        p = np.array([child.subtree_score() for child in node.children])
-        p_sum = np.sum(p)
-        if p_sum == 0:
-            p[0] = 1.0
-        else:
-            p /= p_sum
-        i = np.random.choice(np.arange(len(node.children)), p=p)
-        return node.children[i]
-
-    def expand_node(self, node, skips):
-        self.remove_tip(node)
-        node.expandable = False
-        delta_score_sum = 0
-        delta_size = 0
-        for angle in EXPAND_ANGLES:
-            me = node.state.me()
-            if me is None:
-                continue
-            v = Point.from_polar(Config.SPEED_FACTOR, me.angle() + angle)
-            command = Command.go_to(me + v)
-            commands = [command] * skips
-            child = self.new_tip(
-                state=self.predict_states(node.state, commands),
-                parent=node,
-                commands=commands)
-            node.children.append(child)
-            delta_score_sum += child.score
-            delta_size += 1
-        while node is not None:
-            node.subtree_score_sum += delta_score_sum
-            node.subtree_size += delta_size
-            node = node.parent
-
-    def add_expandable_nodes(self, skips):
-        for me in self.root.state.my_blobs[:MAX_POWER_BLOBS]:
+    def add_nodes(self, root, skips):
+        for me in root.state.my_blobs[:MAX_POWER_BLOBS]:
             for angle in DISCOVERY_ANGLES:
-                split = False
                 v = Point.from_polar(Config.SPEED_FACTOR, me.angle() + angle)
-                node = self.root
-                depth = 0
+                node = root
                 while (node.state.me() is not None
                        and me.can_see(node.state.me()) and
                        (node.parent is None or node.parent.state.me().qdist(
                            node.state.me()) > ROOT_EPS**2)):
                     commands = [
-                        Command.go_to(
-                            node.state.me() + v,
-                            split=split and depth == 0 and i == 0)
+                        Command.go_to(node.state.me() + v)
                         for i in range(skips)
                     ]
                     child = self.new_tip(
                         state=self.predict_states(node.state, commands),
                         parent=node,
                         commands=commands)
-                    node.children.append(
-                        child)  # last_node is still expandable.
+                    node.children.append(child)
                     self.remove_tip(node)
-                    depth += 1
-                    if depth < MIN_EXPANSION_DEPTH:
-                        child.expandable = False
                     node = child
-                node.expandable = True
 
     def get_next_root(self, tip):
         node = tip
