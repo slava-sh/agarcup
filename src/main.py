@@ -12,8 +12,6 @@ DISCOVERY_ANGLES = np.linspace(0, 2 * math.pi, 4 * 3)[:-1]
 MAX_POWER_BLOBS = 1
 MAX_DEPTH = 7
 
-SKIP_DISTANCE = 40
-
 SPEED_REWARD_FACTOR = 0.01
 
 SAFETY_MARGIN_FACTOR = 2.5
@@ -170,7 +168,9 @@ class Me(Player):
             self.v = self.v.with_length(min(self.max_speed(), self.speed()))
 
     def update_v(self, command):
-        self.v = self.v + ((command - self).unit() * self.max_speed() - self.v
+        if self.is_fast:
+            return
+        self.v = self.v + ((command - self).with_length(self.max_speed()) - self.v
                            ) * (Config.INERTION_FACTOR / self.m)
         self.limit_speed()
 
@@ -311,10 +311,11 @@ class Strategy:
         me = my_blobs[0]
         self.food = food
         self.ejections = ejections
-        self.viruses = viruses
+        self.viruses = [v for v in viruses if me.can_see(v)]
         self.enemies = enemies
 
-        skips = max(1, int(SKIP_DISTANCE / me.max_speed()))
+        speed = (me.speed() + me.max_speed()) / 2
+        skips = max(5, int(me.r / speed))
 
         if (self.root is None or self.root.state.me() is None
                 or (not self.commands
@@ -334,7 +335,8 @@ class Strategy:
                 key=lambda node: node.score)
             if self.debug:
                 self.debug_tip = target
-            self.advance_root(self.get_next_root(target))
+            self.root = self.get_next_root(target)
+            self.root.parent = None
             for command in self.root.commands:
                 self.commands.append(
                     Command(x=command.x, y=command.y, split=command.split))
@@ -401,7 +403,7 @@ class Strategy:
                         for i in range(skips)
                     ]
                     child = self.new_tip(
-                        state=self.predict_states(node.state, commands),
+                        state=self.predict_states(node.state, commands, skips),
                         parent=node,
                         commands=commands)
                     node.children.append(child)
@@ -413,32 +415,25 @@ class Strategy:
             node = node.parent
         return node
 
-    def advance_root(self, next_root):
-        not_roots = [
-            node for node in self.root.children if node is not next_root
-        ]
-        self.root = next_root
-        self.root.parent = None
-
     def new_tip(self, *args, **kwargs):
         tip = Node(*args, **kwargs)
         tip.compute_tip_score()
         return tip
 
-    def predict_states(self, state, commands):
-        for command in commands:
-            state = self.predict_state(state, command)
+    def predict_states(self, state, commands, skips):
+        for i, command in enumerate(commands):
+            slow = len(commands) - 1
+            state = self.predict_state(state, command, slow)
         return state
 
-    def predict_state(self, state, command):
+    def predict_state(self, state, command, slow):
         # TODO: Fix precision error when eating food at max speed.
         my_blobs = [copy.copy(me) for me in state.my_blobs]
 
         # Following the oringial mechanic.
         # apply_strategies: update v.
         for me in my_blobs:
-            if not me.is_fast:
-                me.update_v(command)
+            me.update_v(command)
 
         # shrink_players.
         tick = state.tick + 1
@@ -447,30 +442,34 @@ class Strategy:
                 me.shrink()
 
         # who_is_eaten: update m.
-        eaten = state.eaten.copy()
-        for food in self.food + self.ejections + self.enemies:
-            if food.id in eaten:
-                continue
-            i, me = find_nearest_me(food, lambda me: me.can_eat(food),
-                                    my_blobs)
-            if me is not None:
-                eaten.add(food.id)
-                me.m += food.m
-        for enemy in self.enemies:
-            if enemy.id in eaten:
-                continue
-            i, me = find_nearest_me(enemy, lambda me: enemy.can_eat(me),
-                                    my_blobs)
-            if me is not None:
-                del my_blobs[i]  # Die.
+        if slow:
+            eaten = state.eaten.copy()
+            for food in self.food + self.ejections + self.enemies:
+                if food.id in eaten:
+                    continue
+                i, me = find_nearest_me(food, lambda me: me.can_eat(food),
+                                        my_blobs)
+                if me is not None:
+                    eaten.add(food.id)
+                    me.m += food.m
+            for enemy in self.enemies:
+                if enemy.id in eaten:
+                    continue
+                i, me = find_nearest_me(enemy, lambda me: enemy.can_eat(me),
+                                        my_blobs)
+                if me is not None:
+                    del my_blobs[i]  # Die.
+        else:
+            eaten = state.eaten
 
         # TODO: who_need_fusion.
 
         # who_intersected_virus.
-        for virus in self.viruses:
-            i, me = find_nearest_me(virus, lambda me: me.can_burst(), my_blobs)
-            if me is not None:
-                my_blobs[i:i + 1] = self.burst(me, virus)
+        if slow:
+            for virus in self.viruses:
+                i, me = find_nearest_me(virus, lambda me: me.can_burst(), my_blobs)
+                if me is not None:
+                    my_blobs[i:i + 1] = self.burst(me, virus)
 
         # update_by_state: update r, limit v, split.
         for me in my_blobs:
@@ -486,7 +485,7 @@ class Strategy:
             if me.ttf > 0:
                 me.ttf -= 1
 
-        my_blobs.sort(key=lambda me: (me.m, me.is_fast), reverse=True)
+        my_blobs.sort(key=lambda me: (me.m, me.id), reverse=True)
         return State(tick, my_blobs, eaten)
 
     def split(self, me):
@@ -706,11 +705,10 @@ def get_logger(debug):
 
 
 def main():
-    debug = bool(os.getenv('DEBUG_STRATEGY'))
+    debug = False
     logger = get_logger(debug)
     strategy = Strategy(logger, debug)
-    if debug:
-        strategy = TimingStrategy(strategy)
+    strategy = TimingStrategy(strategy)
     interactor = Interactor(strategy, logger, debug)
     interactor.run()
 
