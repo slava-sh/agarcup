@@ -1,0 +1,13 @@
+[package]
+name = "strategy"
+version = "0.1.0"
+authors = ["Slava Shklyaev <slava@slava.sh>"]
+
+[features]
+default = []
+debug = []
+
+[dependencies]
+serde = "1.0.13"
+serde_json = "1.0.13"
+serde_derive = "1.0.13"
