@@ -2,7 +2,7 @@ use models::*;
 
 #[derive(Debug)]
 pub struct Virus {
-    pub id_: String,
+    pub id_: BlobId,
     pub point_: Point,
     pub m_: f64,
 }

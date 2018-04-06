@@ -8,7 +8,7 @@ mod timing_wrapper;
 
 pub trait Strategy {
     fn tick(
-        &self,
+        &mut self,
         tick: i64,
         my_blobs: Vec<Player>,
         food: Vec<Food>,

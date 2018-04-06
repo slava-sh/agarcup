@@ -3,7 +3,7 @@ use command::Command;
 
 #[derive(Debug)]
 pub struct Player {
-    pub id_: String,
+    pub id_: BlobId,
     pub point_: Point,
     pub m_: f64,
     pub r_: f64,
@@ -12,8 +12,15 @@ pub struct Player {
     pub ttf_: Option<i64>,
 }
 
+impl HasPoint for Player {
+    fn point(&self) -> Point {
+        self.point_
+    }
+}
+
 impl Player {
-    impl_getter!(point() -> point_: Point);
+    impl_getter!(id() -> id_: &BlobId);
+    //impl_getter!(point() -> point_: Point);
     impl_getter!(point_mut() -> point_: &mut Point);
     impl_getter!(m() -> m_: f64);
     impl_getter!(r() -> r_: f64);

@@ -2,7 +2,7 @@ use models::*;
 
 #[derive(Debug)]
 pub struct Ejection {
-    pub id_: String,
+    pub id_: BlobId,
     pub point_: Point,
 }
 

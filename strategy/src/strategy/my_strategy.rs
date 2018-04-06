@@ -1,3 +1,6 @@
+use std::collections::{HashSet, VecDeque};
+use std::rc::Rc;
+
 use strategy::*;
 use config::config;
 
@@ -5,58 +8,99 @@ const ROOT_EPS: f64 = 1.0;
 //const DISCOVERY_ANGLES = np.linspace(0, 2 * math.pi, 4 * 3)[:-1]
 const MAX_POWER_BLOBS: i64 = 1;
 const MAX_DEPTH: i64 = 7;
+const MIN_SKIPS: i64 = 5;
 
 const SPEED_REWARD_FACTOR: f64 = 0.01;
 
 const SAFETY_MARGIN_FACTOR: f64 = 2.5;
 const SAFETY_MARGIN_PENALTY: f64 = -3.0;
 
-pub struct MyStrategy {}
+pub struct MyStrategy {
+    root: Option<Rc<Node>>,
+    commands: VecDeque<Command>,
+}
+
+struct Node {
+    state: State,
+    parent: Rc<Node>,
+    commands: Vec<Command>,
+    chilren: Vec<Rc<Node>>,
+    score: f64,
+}
+
+impl Node {
+    fn recompute_tip_score(&mut self) {
+        self.score = self.state
+            .my_blobs
+            .iter()
+            .map(|me| self.compute_blob_score(me))
+            .sum::<f64>()
+            .max(0.0);
+    }
+
+    fn compute_blob_score(&self, me: &Player) -> f64 {
+        let mut score = 0.0;
+        score += me.m();
+        score += me.speed() * SPEED_REWARD_FACTOR;
+
+        let safety_margin = me.r() * SAFETY_MARGIN_FACTOR;
+        if me.x() < safety_margin || me.x() > config().game_width as f64 - safety_margin {
+            score += SAFETY_MARGIN_PENALTY;
+        }
+        if me.y() < safety_margin || me.y() > config().game_height as f64 - safety_margin {
+            score += SAFETY_MARGIN_PENALTY;
+        }
+
+        score.max(0.0)
+    }
+}
+
+struct State {
+    tick: i64,
+    my_blobs: Vec<Player>,
+    eaten: HashSet<BlobId>,
+}
+
+impl State {
+    fn me(&self) -> Option<&Player> {
+        self.my_blobs.first()
+    }
+}
 
 impl MyStrategy {
     pub fn new() -> MyStrategy {
-        MyStrategy {}
+        MyStrategy {
+            root: None,
+            commands: VecDeque::new(),
+        }
     }
 }
 
 impl Strategy for MyStrategy {
     fn tick(
-        &self,
+        &mut self,
         tick: i64,
-        my_blobs: Vec<Player>,
-        food: Vec<Food>,
-        ejections: Vec<Ejection>,
-        viruses: Vec<Virus>,
-        enemies: Vec<Player>,
+        mut my_blobs: Vec<Player>,
+        mut food: Vec<Food>,
+        mut ejections: Vec<Ejection>,
+        mut viruses: Vec<Virus>,
+        mut enemies: Vec<Player>,
     ) -> Command {
-        config();
         let mut command = Command::new();
+        my_blobs.sort_by(|a, b| {
+            a.m().partial_cmp(&b.m()).unwrap_or_else(
+                || a.id().cmp(&b.id()),
+            )
+        });
+        let me = &my_blobs[0];
+        let speed = (me.speed() + me.max_speed()) / 2.0;
+        let skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
         command.set_point(Point::new(500.0, 500.0));
+        config();
         command
     }
 }
 
-//    def __init__(self, logger, debug):
-//        self.logger = logger
-//        self.debug = debug
-//        self.root = None
-//        self.commands = collections.deque([])
-//
-//    def tick(self, tick, data):
-//        if self.debug:
-//            self.debug_messages = []
-//
-//        my_blobs, food, ejections, viruses, enemies = data
-//        my_blobs.sort(key=lambda me: (me.m, me.is_fast), reverse=True)
-//        me = my_blobs[0]
-//        self.food = food
-//        self.ejections = ejections
-//        self.viruses = [v for v in viruses if me.can_see(v)]
-//        self.enemies = enemies
-//
-//        speed = (me.speed() + me.max_speed()) / 2
-//        skips = max(5, int(me.r / speed))
-//
 //        if (self.root is None or self.root.state.me() is None
 //                or (not self.commands
 //                    and self.root.state.me().qdist(me) > ROOT_EPS**2)):
@@ -133,7 +177,7 @@ impl Strategy for MyStrategy {
 //    def add_nodes(self, root, skips):
 //        for me in root.state.my_blobs[:MAX_POWER_BLOBS]:
 //            for angle in DISCOVERY_ANGLES:
-//                v = Point.from_polar(Config.SPEED_FACTOR, me.angle() + angle)
+//                v = Point.from_polar(config().speed_factor, me.angle() + angle)
 //                node = root
 //                for _ in range(MAX_DEPTH):
 //                    if node.state.me() is None or not me.can_see(node.state.me()):
@@ -177,7 +221,7 @@ impl Strategy for MyStrategy {
 //
 //        # shrink_players.
 //        tick = state.tick + 1
-//        if tick % Config.SHRINK_EVERY_TICK == 0:
+//        if tick % config().shrink_every_tick == 0:
 //            for me in my_blobs:
 //                me.shrink()
 //
@@ -232,7 +276,7 @@ impl Strategy for MyStrategy {
 //        if not me.can_split():
 //            return [me]
 //        m = me.m / 2
-//        v = Point.from_polar(Config.SPLIT_START_SPEED, me.angle())
+//        v = Point.from_polar(config().split_start_speed, me.angle())
 //        return [
 //            Me(
 //                id=me.id + '+1',  # TODO: Compute correct ids.
@@ -241,14 +285,14 @@ impl Strategy for MyStrategy {
 //                m=m,
 //                v=v,
 //                is_fast=True,
-//                ttf=Config.TICKS_TIL_FUSION),
+//                ttf=config().ticks_til_fusion),
 //            Me(id=me.id + '+2',
 //               x=me.x,
 //               y=me.y,
 //               m=m,
 //               v=me.v,
 //               is_fast=me.is_fast,
-//               ttf=Config.TICKS_TIL_FUSION)
+//               ttf=config().ticks_til_fusion)
 //        ]
 //
 //    def burst(self, me, virus):
@@ -307,3 +351,4 @@ impl Strategy for MyStrategy {
 //    return nodes
 //
 //
+//        self.viruses = [v for v in viruses if me.can_see(v)]
