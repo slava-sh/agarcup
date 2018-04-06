@@ -1,4 +1,4 @@
-pub use self::point::Point;
+pub use self::point::{Point, HasPoint};
 pub use self::food::Food;
 pub use self::ejection::Ejection;
 pub use self::virus::Virus;
@@ -13,24 +13,11 @@ mod player;
 
 pub type BlobId = String;
 
-pub trait Circle {
-    fn point(&self) -> Point;
+pub trait Circle: HasPoint {
     fn r(&self) -> f64;
 }
 
 pub trait Blob: Circle {
-    fn id(&self) -> String;
+    fn id(&self) -> BlobId;
     fn m(&self) -> f64;
-}
-
-pub trait HasPoint {
-    fn point(&self) -> Point;
-
-    fn x(&self) -> f64 {
-        self.point().x
-    }
-
-    fn y(&self) -> f64 {
-        self.point().y
-    }
 }

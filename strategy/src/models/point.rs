@@ -19,14 +19,6 @@ impl Point {
         Point::new(0.0, 0.0)
     }
 
-    pub fn dist(self, other: Point) -> f64 {
-        (self.x - other.x).hypot(self.y - other.y)
-    }
-
-    pub fn qdist(self, other: Point) -> f64 {
-        (self.x - other.x).powi(2) + (self.y - other.y).powi(2)
-    }
-
     pub fn angle(self) -> f64 {
         self.y.atan2(self.x)
     }
@@ -63,16 +55,44 @@ impl Div<f64> for Point {
     }
 }
 
-impl Add for Point {
-    type Output = Point;
-    fn add(self, other: Point) -> Point {
-        Point::new(self.x + other.x, self.y + other.y)
+pub trait HasPoint {
+    fn point(&self) -> Point;
+
+    fn x(&self) -> f64 {
+        self.point().x
+    }
+
+    fn y(&self) -> f64 {
+        self.point().y
     }
 }
 
-impl Sub for Point {
+impl HasPoint for Point {
+    fn point(&self) -> Point {
+        *self
+    }
+}
+
+impl Point {
+    pub fn dist<Other: HasPoint>(self, other: Other) -> f64 {
+        (self.x - other.x()).hypot(self.y - other.y())
+    }
+
+    pub fn qdist<Other: HasPoint>(self, other: Other) -> f64 {
+        (self.x - other.x()).powi(2) + (self.y - other.y()).powi(2)
+    }
+}
+
+impl<Other: HasPoint> Add<Other> for Point {
     type Output = Point;
-    fn sub(self, other: Point) -> Point {
-        Point::new(self.x - other.x, self.y - other.y)
+    fn add(self, other: Other) -> Point {
+        Point::new(self.x + other.x(), self.y + other.y())
+    }
+}
+
+impl<Other: HasPoint> Sub<Other> for Point {
+    type Output = Point;
+    fn sub(self, other: Other) -> Point {
+        Point::new(self.x - other.x(), self.y - other.y())
     }
 }
