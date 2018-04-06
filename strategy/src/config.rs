@@ -5,7 +5,7 @@ macro_rules! impl_config {
         #[derive(Debug)]
         pub struct Config {
             $(
-                $name: $type
+                pub $name: $type
             ),*
         }
 
@@ -46,7 +46,7 @@ impl_config!{
     ejection_mass: f64 = 15.0,
     mass_eat_factor: f64 = 1.2,
     radius_factor: f64 = 2.0,
-    diam_eat_factor: f64 = 2 / 3,
+    diam_eat_factor: f64 = 2.0 / 3.0,
     vis_factor: f64 = 4.0,
     vis_factor_fr: f64 = 2.5,
     vis_shift: f64 = 10.0,
