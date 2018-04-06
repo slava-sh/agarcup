@@ -73,3 +73,9 @@ macro_rules! impl_into {
 
 impl_into!(i64, as_i64);
 impl_into!(f64, as_f64);
+
+static SINGLETON: Option<Config> = None;
+
+pub fn config() -> &'static Config {
+    SINGLETON.as_ref().expect("SINGLETON is None")
+}
