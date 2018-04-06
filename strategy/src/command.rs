@@ -3,6 +3,7 @@ use models::{Point, HasPoint};
 #[derive(Debug)]
 pub struct Command {
     point_: Point,
+    split_: bool,
     debug_messages_: Vec<String>,
     #[cfg(feature = "debug")]
     debug_lines_: Vec<DebugLine>,
@@ -20,6 +21,7 @@ impl Command {
     pub fn new() -> Command {
         Command {
             point_: Point::zero(),
+            split_: false,
             debug_messages_: vec![],
             #[cfg(feature = "debug")]
             debug_lines_: vec![],
@@ -36,6 +38,14 @@ impl Command {
 
     pub fn set_point(&mut self, point: Point) {
         self.point_ = point;
+    }
+
+    pub fn split(&self) -> bool {
+        self.split_
+    }
+
+    pub fn set_split(&mut self) {
+        self.split_ = true;
     }
 
     pub fn debug_messages(&self) -> &[String] {

@@ -315,10 +315,8 @@ impl MyStrategy {
 
     fn predict_states(&self, state: &State, commands: &[Command], _skips: i64) -> State {
         let mut state = self.predict_state(state, &commands[0], true);
-        for (i, command) in commands[1..].iter().enumerate() {
-            //let slow = i == (commands.len() - 1);
-            let slow = true;
-            state = self.predict_state(&state, command, slow);
+        for command in commands[1..].iter() {
+            state = self.predict_state(&state, command, true);
         }
         state
     }
@@ -332,7 +330,6 @@ impl MyStrategy {
             me.update_v(command);
         }
 
-
         // shrink_players.
         let tick = state.tick + 1;
         if tick % config().shrink_every_tick == 0 {
@@ -340,7 +337,6 @@ impl MyStrategy {
                 me.shrink();
             }
         }
-
 
         // who_is_eaten: update m.
         let eaten = if slow {
@@ -370,7 +366,7 @@ impl MyStrategy {
                     continue;
                 }
                 if let Some(i) = find_nearest_me(enemy, |me| enemy.can_eat(me), my_blobs.as_ref()) {
-                    //TODO: del(my_blobs[i]); // Die.
+                    my_blobs.swap_remove(i); // Die.
                 }
             }
             Rc::new(eaten)
@@ -384,7 +380,8 @@ impl MyStrategy {
         if slow {
             for virus in self.viruses.iter() {
                 if let Some(i) = find_nearest_me(virus, |me| me.can_burst(), my_blobs.as_ref()) {
-                    //TODO: my_blobs[i: i + 1] = self.burst(me, virus);
+                    let ref me = my_blobs.swap_remove(i);
+                    my_blobs.extend(self.burst(me, virus));
                 }
             }
         }
@@ -394,10 +391,9 @@ impl MyStrategy {
             me.update_r();
             me.limit_speed();
         }
-        // TODO
-        //if command.split {
-        //    my_blobs = [new_me for me in my_blobs for new_me in self.split(me)];
-        //}
+        if command.split() {
+            my_blobs = my_blobs.iter().flat_map(|me| self.split(&me)).collect();
+        }
 
         // move_moveables: collide (TODO), move, apply viscosity, update ttf.
         for me in my_blobs.iter_mut() {
@@ -416,6 +412,16 @@ impl MyStrategy {
             my_blobs,
             eaten,
         }
+    }
+
+    fn split(&self, me: &Player) -> Vec<Player> {
+        // TODO
+        vec![me.clone()]
+    }
+
+    fn burst(&self, me: &Player, virus: &Virus) -> Vec<Player> {
+        // TODO
+        vec![]
     }
 
     //    fn split(self, me) {
