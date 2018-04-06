@@ -30,6 +30,8 @@ pub struct MyStrategy {
     ejections: Vec<Ejection>,
     viruses: Vec<Virus>,
     enemies: Vec<Player>,
+    #[cfg(feature = "debug")]
+    target: Option<SharedNode>,
 }
 
 struct Node {
@@ -90,6 +92,8 @@ impl MyStrategy {
             ejections: vec![],
             viruses: vec![],
             enemies: vec![],
+            #[cfg(feature = "debug")]
+            target: None,
         }
     }
 }
@@ -167,9 +171,10 @@ impl Strategy for MyStrategy {
                     )
                 })
                 .expect("no nodes found");
-            //if self.debug {
-            //    self.debug_tip = target;
-            //}
+            #[cfg(feature = "debug")]
+            {
+                self.target = Some(Rc::clone(&target));
+            }
             root.borrow_mut().children.clear();
             let root = self.get_next_root(target);
             root.borrow_mut().parent = None;
@@ -227,25 +232,60 @@ impl Strategy for MyStrategy {
                     opacity: 0.1,
                 });
             }
-            //for me in self.debug_tip.state.my_blobs.iter() {
-            //    command.add_debug_circle(Circle {
-            //        center: me,
-            //        radius: 2.0,
-            //        color: String::from("red"),
-            //        opacity: 1.0,
-            //    });
-            //}
-            //node = self.debug_tip
-            //while node.parent.is_some() {
-            //    for n, p in zip(node.state.my_blobs,
-            //                    node.parent.state.my_blobs) {
-            //        command.add_debug_line([n, p], "black")
-            //    node = node.parent
 
-            //for food in food + ejections + viruses + enemies {
-            //    if food.id in self.debug_tip.state.eaten {
-            //        command.add_debug_circle(
-            //            Circle(food.x, food.y, food.r + 2), "green", 0.5)
+            let target = self.target.as_ref().expect("no target");
+            for me in target.borrow().state.my_blobs.iter() {
+                command.add_debug_circle(DebugCircle {
+                    center: me.point(),
+                    radius: 2.0,
+                    color: String::from("red"),
+                    opacity: 1.0,
+                });
+            }
+            let mut node = Rc::clone(&target);
+            loop {
+                let parent = match node.borrow().parent {
+                    Some(ref parent) => Rc::clone(&parent),
+                    None => break,
+                };
+                for (n, p) in node.borrow().state.my_blobs.iter().zip(
+                    parent
+                        .borrow()
+                        .state
+                        .my_blobs
+                        .iter(),
+                )
+                {
+                    command.add_debug_line(DebugLine {
+                        a: n.point(),
+                        b: p.point(),
+                        color: String::from("black"),
+                        opacity: 1.0,
+                    });
+                }
+                node = parent;
+            }
+
+            fn as_blob<B: Blob>(b: &B) -> &Blob {
+                b as &Blob
+            }
+            use std::iter;
+            for blob in iter::empty()
+                .chain(self.food.iter().map(as_blob))
+                .chain(self.ejections.iter().map(as_blob))
+                .chain(self.viruses.iter().map(as_blob))
+                .chain(self.enemies.iter().map(as_blob))
+            {
+                if target.borrow().state.eaten.contains(blob.id()) {
+                    command.add_debug_circle(DebugCircle {
+                        center: blob.point(),
+                        radius: blob.r() + 2.0,
+                        color: String::from("green"),
+                        opacity: 0.5,
+                    });
+                }
+            }
+
             //for danger in viruses + enemies {
             //    command.add_debug_circle(
             //        Circle(danger.x, danger.y, danger.r + 2), "red", 0.1)
