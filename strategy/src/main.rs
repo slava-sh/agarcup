@@ -9,6 +9,7 @@ extern crate lazy_static;
 extern crate log;
 extern crate fern;
 extern crate chrono;
+extern crate time;
 
 #[macro_use]
 mod utils;

@@ -2,14 +2,12 @@ use std::io;
 
 use serde_json;
 
-use models::*;
-use strategy::Strategy;
-use command::Command;
+use strategy::*;
 use config::{Config, init_config};
 
 pub fn run() {
     init_config(read_config());
-    let mut strategy = Strategy::new();
+    let mut strategy = get_strategy();
     let mut tick = 0;
     while let Some(data) = read_tick_data() {
         let command = strategy.tick(
@@ -23,6 +21,16 @@ pub fn run() {
         print_command(command);
         tick += 1;
     }
+}
+
+#[cfg(not(feature = "debug"))]
+fn get_strategy() -> MyStrategy {
+    MyStrategy::new()
+}
+
+#[cfg(feature = "debug")]
+fn get_strategy() -> TimingWrapper<MyStrategy> {
+    TimingWrapper::new(MyStrategy::new())
 }
 
 fn read_config() -> Config {
@@ -141,7 +149,7 @@ fn print_command(command: Command) {
     let response = Response {
         x: command.point().x,
         y: command.point().y,
-        debug: None,
+        debug: command.debug_messages().join("; "),
         #[cfg(feature = "debug")]
         draw: String::new(),
     };
@@ -149,11 +157,6 @@ fn print_command(command: Command) {
         "{}",
         serde_json::to_string(&response).expect("response serialization failed")
     );
-    //if cfg!(feature = "debug") {
-    //    eprintln!("debug!");
-    //} else {
-    //    eprintln!("no debug!");
-    //}
 }
 
 #[derive(Serialize)]
@@ -161,7 +164,7 @@ fn print_command(command: Command) {
 struct Response {
     x: f64,
     y: f64,
-    debug: Option<String>,
+    debug: String,
     #[cfg(feature = "debug")]
     draw: String,
 }
