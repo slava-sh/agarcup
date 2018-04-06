@@ -264,7 +264,13 @@ impl Strategy for MyStrategy {
 
 impl MyStrategy {
     fn add_nodes(&self, root: SharedNode, skips: i64) {
-        let power_blobs = root.borrow().state.my_blobs[..MAX_POWER_BLOBS as usize].to_vec();
+        let power_blobs: Vec<_> = root.borrow()
+            .state
+            .my_blobs
+            .iter()
+            .take(MAX_POWER_BLOBS as usize)
+            .cloned()
+            .collect();
         for me in power_blobs {
             for angle in DISCOVERY_ANGLES.iter() {
                 let v = Point::from_polar(config().speed_factor, me.angle() + angle);
@@ -315,7 +321,7 @@ impl MyStrategy {
 
     fn predict_states(&self, state: &State, commands: &[Command], _skips: i64) -> State {
         let mut state = self.predict_state(state, &commands[0], true);
-        for command in commands[1..].iter() {
+        for command in commands.iter().skip(1) {
             state = self.predict_state(&state, command, true);
         }
         state
