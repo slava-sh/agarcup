@@ -1,7 +1,7 @@
 pub use self::my_strategy::MyStrategy;
 pub use self::timing_wrapper::TimingWrapper;
 pub use models::*;
-pub use command::Command;
+pub use command::*;
 
 mod my_strategy;
 mod timing_wrapper;

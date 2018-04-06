@@ -168,7 +168,9 @@ impl Strategy for MyStrategy {
             root.borrow_mut().parent = None;
             self.root = Some(Rc::clone(&root));
             for command in root.borrow().commands.iter() {
-                self.commands.push_back(command.clone());
+                self.commands.push_back(
+                    Command::from_point(command.point()),
+                );
             }
             self.add_nodes(root, skips);
         }
@@ -179,12 +181,29 @@ impl Strategy for MyStrategy {
             fn go(node: &SharedNode, tree_size: &mut i64, command: &mut Command) {
                 *tree_size = *tree_size + 1;
                 for me in node.borrow().state.my_blobs.iter() {
-                    //command.add_debug_circle( Circle(me.x, me.y, 1), "black", 0.3);
+                    command.add_debug_circle(DebugCircle {
+                        center: me.point(),
+                        radius: 1.0,
+                        color: String::from("black"),
+                        opacity: 0.3,
+                    });
                 }
                 for child in node.borrow().children.iter() {
-                    //for (n, c) in node.state.my_blobs.iter().zip(child.state.my_blobs.iter()) {
-                    //    command.add_debug_line([n, c], "black", 0.3)
-                    //}
+                    for (n, c) in node.borrow().state.my_blobs.iter().zip(
+                        child
+                            .borrow()
+                            .state
+                            .my_blobs
+                            .iter(),
+                    )
+                    {
+                        command.add_debug_line(DebugLine {
+                            a: n.point(),
+                            b: c.point(),
+                            color: String::from("black"),
+                            opacity: 0.3,
+                        });
+                    }
                     go(child, tree_size, command);
                 }
             }

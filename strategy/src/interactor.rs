@@ -151,8 +151,34 @@ fn print_command(command: Command) {
         y: command.point().y,
         debug: command.debug_messages().join("; "),
         #[cfg(feature = "debug")]
-        draw: String::new(),
+        draw: Draw {
+            lines: command
+                .debug_lines()
+                .iter()
+                .map(|line| {
+                    DrawLine {
+                        p: vec![XY::from(line.a), XY::from(line.b)],
+                        c: line.color.clone(),
+                        a: line.opacity,
+                    }
+                })
+                .collect(),
+            circles: command
+                .debug_circles()
+                .iter()
+                .map(|circle| {
+                    DrawCircle {
+                        x: circle.center.x,
+                        y: circle.center.y,
+                        r: circle.radius,
+                        c: circle.color.clone(),
+                        a: circle.opacity,
+                    }
+                })
+                .collect(),
+        },
     };
+    #[cfg(feature = "debug")]
     println!(
         "{}",
         serde_json::to_string(&response).expect("response serialization failed")
@@ -166,5 +192,46 @@ struct Response {
     y: f64,
     debug: String,
     #[cfg(feature = "debug")]
-    draw: String,
+    draw: Draw,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "PascalCase")]
+struct Draw {
+    lines: Vec<DrawLine>,
+    circles: Vec<DrawCircle>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "PascalCase")]
+struct DrawLine {
+    p: Vec<XY>,
+    c: String,
+    a: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "PascalCase")]
+struct XY {
+    x: f64,
+    y: f64,
+}
+
+impl XY {
+    fn from(point: Point) -> XY {
+        XY {
+            x: point.x,
+            y: point.y,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "PascalCase")]
+struct DrawCircle {
+    x: f64,
+    y: f64,
+    r: f64,
+    c: String,
+    a: f64,
 }
