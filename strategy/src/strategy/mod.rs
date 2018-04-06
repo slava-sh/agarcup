@@ -1,9 +1,11 @@
 pub use self::my_strategy::MyStrategy;
+#[cfg(feature = "debug")]
 pub use self::timing_wrapper::TimingWrapper;
-pub use models::*;
 pub use command::*;
+pub use models::*;
 
 mod my_strategy;
+#[cfg(feature = "debug")]
 mod timing_wrapper;
 
 pub trait Strategy {

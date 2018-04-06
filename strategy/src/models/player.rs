@@ -35,8 +35,6 @@ impl Blob for Player {
 }
 
 impl Player {
-    impl_getter!(point_mut() -> point_: &mut Point);
-
     pub fn can_eat<Other: Blob>(&self, other: &Other) -> bool {
         if !(self.m() > other.m() * config().mass_eat_factor) {
             return false;
@@ -114,10 +112,10 @@ impl Player {
     }
 
     pub fn apply_v(&mut self) {
-        self.point_mut().x = (self.point().x + self.v().x)
+        self.point_.x = (self.point().x + self.v().x)
             .min(config().game_width as f64 - self.r())
             .max(self.r());
-        self.point_mut().y = (self.point().y + self.v().y)
+        self.point_.y = (self.point().y + self.v().y)
             .min(config().game_height as f64 - self.r())
             .max(self.r());
     }

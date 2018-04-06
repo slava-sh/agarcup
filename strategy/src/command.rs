@@ -1,34 +1,30 @@
-use models::Point;
+use models::{Point, HasPoint};
 
 #[derive(Debug)]
 pub struct Command {
-    point: Point,
-    debug_messages: Vec<String>,
+    point_: Point,
+    debug_messages_: Vec<String>,
     #[cfg(feature = "debug")]
-    debug_lines: Vec<DebugLine>,
+    debug_lines_: Vec<DebugLine>,
     #[cfg(feature = "debug")]
-    debug_circles: Vec<DebugCircle>,
+    debug_circles_: Vec<DebugCircle>,
+}
+
+impl HasPoint for Command {
+    fn point(&self) -> Point {
+        self.point_
+    }
 }
 
 impl Command {
-    impl_getter!(point() -> point: Point);
-    impl_setter!(set_point(point: Point));
-    impl_getter!(debug_messages() -> debug_messages: &Vec<String>);
-
-    #[cfg(feature = "debug")]
-    impl_getter!(debug_lines() -> debug_lines: &Vec<DebugLine>);
-
-    #[cfg(feature = "debug")]
-    impl_getter!(debug_circles() -> debug_circles: &Vec<DebugCircle>);
-
     pub fn new() -> Command {
         Command {
-            point: Point::zero(),
-            debug_messages: vec![],
+            point_: Point::zero(),
+            debug_messages_: vec![],
             #[cfg(feature = "debug")]
-            debug_lines: vec![],
+            debug_lines_: vec![],
             #[cfg(feature = "debug")]
-            debug_circles: vec![],
+            debug_circles_: vec![],
         }
     }
 
@@ -38,25 +34,37 @@ impl Command {
         command
     }
 
+    pub fn set_point(&mut self, point: Point) {
+        self.point_ = point;
+    }
+
+    pub fn debug_messages(&self) -> &[String] {
+        self.debug_messages_.as_ref()
+    }
+
+    #[cfg(feature = "debug")]
+    pub fn debug_lines(&self) -> &[DebugLine] {
+        self.debug_lines_.as_ref()
+    }
+
+    #[cfg(feature = "debug")]
+    pub fn debug_circles(&self) -> &[DebugCircle] {
+        self.debug_circles_.as_ref()
+    }
+
     pub fn add_debug_message(&mut self, message: String) {
-        self.debug_messages.push(message)
+        self.debug_messages_.push(message)
     }
 
     #[cfg(feature = "debug")]
     pub fn add_debug_line(&mut self, line: DebugLine) {
-        self.debug_lines.push(line)
+        self.debug_lines_.push(line)
     }
-
-    #[cfg(not(feature = "debug"))]
-    pub fn add_debug_line(&mut self, line: DebugLine) {}
 
     #[cfg(feature = "debug")]
     pub fn add_debug_circle(&mut self, circle: DebugCircle) {
-        self.debug_circles.push(circle)
+        self.debug_circles_.push(circle)
     }
-
-    #[cfg(not(feature = "debug"))]
-    pub fn add_debug_circle(&mut self, circle: DebugCircle) {}
 }
 
 #[derive(Debug)]

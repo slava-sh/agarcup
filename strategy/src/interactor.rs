@@ -178,7 +178,6 @@ fn print_command(command: Command) {
                 .collect(),
         },
     };
-    #[cfg(feature = "debug")]
     println!(
         "{}",
         serde_json::to_string(&response).expect("response serialization failed")

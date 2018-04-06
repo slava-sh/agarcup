@@ -1,15 +1,16 @@
-pub use self::point::{Point, HasPoint};
-pub use self::food::Food;
 pub use self::ejection::Ejection;
-pub use self::virus::Virus;
+pub use self::food::Food;
 pub use self::player::Player;
+pub use self::point::{Point, HasPoint};
+pub use self::virus::Virus;
+
 use config::config;
 
-mod point;
-mod food;
 mod ejection;
-mod virus;
+mod food;
 mod player;
+mod point;
+mod virus;
 
 pub type BlobId = String;
 

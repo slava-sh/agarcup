@@ -126,7 +126,8 @@ impl Strategy for MyStrategy {
             }
         };
         if should_reset_root {
-            if cfg!(feature = "debug") {
+            #[cfg(feature = "debug")]
+            {
                 if let Some(ref root) = self.root {
                     if let Some(ref root_me) = root.borrow().state.me() {
                         command.add_debug_message(format!("RESET"));
@@ -183,7 +184,8 @@ impl Strategy for MyStrategy {
 
         command.set_point(self.commands.pop_front().expect("no commands left").point());
 
-        if cfg!(feature = "debug") {
+        #[cfg(feature = "debug")]
+        {
             fn go(node: &SharedNode, tree_size: &mut i64, command: &mut Command) {
                 *tree_size = *tree_size + 1;
                 for me in node.borrow().state.my_blobs.iter() {
