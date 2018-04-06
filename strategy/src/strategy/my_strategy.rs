@@ -7,15 +7,21 @@ use strategy::*;
 use config::config;
 
 const ROOT_EPS: f64 = 1.0;
-static DISCOVERY_ANGLES: &'static [f64] = &[0.0, PI / 2.0, -PI / 2.0]; //np.linspace(0, 2 * math.pi, 4 * 3)[:-1]
 const MAX_POWER_BLOBS: i64 = 1;
-const MAX_DEPTH: i64 = 7;
+const MAX_DEPTH: i64 = 15;
 const MIN_SKIPS: i64 = 5;
 
 const SPEED_REWARD_FACTOR: f64 = 0.01;
 
 const SAFETY_MARGIN_FACTOR: f64 = 2.5;
 const SAFETY_MARGIN_PENALTY: f64 = -3.0;
+
+lazy_static! {
+    static ref DISCOVERY_ANGLES: Vec<f64> = {
+        let n = 4 * 3;
+        (0..n).map(|i| 2.0 * PI * i as f64 / n as f64).collect()
+    };
+}
 
 pub struct MyStrategy {
     root: Option<SharedNode>,
@@ -211,11 +217,22 @@ impl Strategy for MyStrategy {
             let mut tree_size = 0;
             go(&root, &mut tree_size, &mut command);
 
-            //for me in self.root.state.my_blobs {
-            //    command.add_debug_circle(
-            //        Circle(me.x, me.y, me.r), "green", 0.1)
-            //for me in self.debug_tip.state.my_blobs {
-            //    command.add_debug_circle(Circle(me.x, me.y, 2), "red")
+            for me in root.borrow().state.my_blobs.iter() {
+                command.add_debug_circle(DebugCircle {
+                    center: me.point(),
+                    radius: me.r(),
+                    color: String::from("green"),
+                    opacity: 0.1,
+                });
+            }
+            //for me in self.debug_tip.state.my_blobs.iter() {
+            //    command.add_debug_circle(Circle {
+            //        center: me,
+            //        radius: 2.0,
+            //        color: String::from("red"),
+            //        opacity: 1.0,
+            //    });
+            //}
             //node = self.debug_tip
             //while node.parent.is_some() {
             //    for n, p in zip(node.state.my_blobs,
@@ -237,9 +254,6 @@ impl Strategy for MyStrategy {
 
             //if command.split {
             //    command.add_debug_message("SPLIT")
-
-            //for message in self.debug_messages {
-            //    command.add_debug_message(message)
         }
 
         command
@@ -300,7 +314,8 @@ impl MyStrategy {
     fn predict_states(&self, state: &State, commands: &[Command], _skips: i64) -> State {
         let mut state = self.predict_state(state, &commands[0], true);
         for (i, command) in commands[1..].iter().enumerate() {
-            let slow = i == (commands.len() - 1);
+            //let slow = i == (commands.len() - 1);
+            let slow = true;
             state = self.predict_state(&state, command, slow);
         }
         state
