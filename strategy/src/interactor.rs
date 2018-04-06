@@ -53,49 +53,53 @@ impl Interactor {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 struct Mine {
-    Id: String,
-    X: f32,
-    Y: f32,
-    R: f32,
-    M: f32,
-    SX: f32,
-    SY: f32,
+    id: String,
+    x: f32,
+    y: f32,
+    r: f32,
+    m: f32,
+    s_x: f32,
+    s_y: f32,
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 struct Objects {
-    X: f32,
-    Y: f32,
-    T: String,
-    Id: Option<String>,
-    M: Option<f32>,
-    R: Option<f32>,
+    x: f32,
+    y: f32,
+    t: String,
+    id: Option<String>,
+    m: Option<f32>,
+    r: Option<f32>,
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 struct Data {
-    Mine: Vec<Mine>,
-    Objects: Vec<Objects>,
+    mine: Vec<Mine>,
+    objects: Vec<Objects>,
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 struct Response {
-    X: f32,
-    Y: f32,
-    Debug: Option<String>,
+    x: f32,
+    y: f32,
+    debug: Option<String>,
     #[cfg(feature = "debug")]
-    Draw: String,
+    draw: String,
 }
 
 impl Response {
     fn new(x: f32, y: f32, d: &str) -> Response {
         Response {
-            X: x,
-            Y: y,
-            Debug: Some(d.to_string()),
+            x: x,
+            y: y,
+            debug: Some(d.to_string()),
             #[cfg(feature = "debug")]
-            Draw: String::new(),
+            draw: String::new(),
         }
     }
 }
