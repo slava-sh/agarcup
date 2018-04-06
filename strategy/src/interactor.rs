@@ -194,6 +194,7 @@ struct Response {
     draw: Draw,
 }
 
+#[cfg(feature = "debug")]
 #[derive(Serialize)]
 #[serde(rename_all = "PascalCase")]
 struct Draw {
@@ -201,6 +202,7 @@ struct Draw {
     circles: Vec<DrawCircle>,
 }
 
+#[cfg(feature = "debug")]
 #[derive(Serialize)]
 #[serde(rename_all = "PascalCase")]
 struct DrawLine {
@@ -209,6 +211,7 @@ struct DrawLine {
     a: f64,
 }
 
+#[cfg(feature = "debug")]
 #[derive(Serialize)]
 #[serde(rename_all = "PascalCase")]
 struct XY {
@@ -216,6 +219,7 @@ struct XY {
     y: f64,
 }
 
+#[cfg(feature = "debug")]
 impl XY {
     fn from(point: Point) -> XY {
         XY {
@@ -225,6 +229,7 @@ impl XY {
     }
 }
 
+#[cfg(feature = "debug")]
 #[derive(Serialize)]
 #[serde(rename_all = "PascalCase")]
 struct DrawCircle {

@@ -62,6 +62,7 @@ impl Command {
         self.debug_circles_.as_ref()
     }
 
+    #[allow(dead_code)]
     pub fn add_debug_message(&mut self, message: String) {
         self.debug_messages_.push(message)
     }
@@ -77,6 +78,7 @@ impl Command {
     }
 }
 
+#[cfg(feature = "debug")]
 #[derive(Debug)]
 pub struct DebugLine {
     pub a: Point,
@@ -85,6 +87,7 @@ pub struct DebugLine {
     pub opacity: f64,
 }
 
+#[cfg(feature = "debug")]
 #[derive(Debug)]
 pub struct DebugCircle {
     pub center: Point,
