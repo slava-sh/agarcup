@@ -2,14 +2,14 @@ use models::*;
 
 #[derive(Debug)]
 pub struct Virus {
-    id: String,
-    point: Point,
-    m: f64,
+    pub id_: String,
+    pub point_: Point,
+    pub m_: f64,
 }
 
 impl Virus {
-    impl_getter!(point() -> Point);
-    impl_getter!(m() -> f64);
+    impl_getter!(point() -> point_: Point);
+    impl_getter!(m() -> m_: f64);
 
     pub fn r(&self) -> f64 {
         config().virus_radius

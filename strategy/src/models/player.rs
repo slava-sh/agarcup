@@ -1,22 +1,22 @@
 use models::*;
-use strategy::Command;
+use command::Command;
 
 #[derive(Debug)]
 pub struct Player {
-    id: String,
-    point: Point,
-    m: f64,
-    r: f64,
-    v: Option<Point>,
-    is_fast: Option<bool>,
-    ttf: Option<i64>,
+    pub id_: String,
+    pub point_: Point,
+    pub m_: f64,
+    pub r_: f64,
+    pub v_: Option<Point>,
+    pub is_fast_: Option<bool>,
+    pub ttf_: Option<i64>,
 }
 
 impl Player {
-    impl_getter!(point() -> Point);
-    impl_getter!(point_mut() -> point: &mut Point);
-    impl_getter!(m() -> f64);
-    impl_getter!(r() -> f64);
+    impl_getter!(point() -> point_: Point);
+    impl_getter!(point_mut() -> point_: &mut Point);
+    impl_getter!(m() -> m_: f64);
+    impl_getter!(r() -> r_: f64);
 
     pub fn can_eat<Other: Blob>(&self, other: &Other) -> bool {
         if !(self.m() > other.m() * config().mass_eat_factor) {
@@ -57,11 +57,11 @@ impl Player {
     }
 
     pub fn v(&self) -> Point {
-        self.v.expect("v not set")
+        self.v_.expect("v not set")
     }
 
     pub fn is_fast(&self) -> bool {
-        self.is_fast.expect("is_fast not set")
+        self.is_fast_.expect("is_fast not set")
     }
 
     pub fn speed(&self) -> f64 {
@@ -73,14 +73,14 @@ impl Player {
     }
 
     pub fn update_r(&mut self) {
-        self.r = config().radius_factor * self.m().sqrt();
+        self.r_ = config().radius_factor * self.m().sqrt();
     }
 
     pub fn limit_speed(&mut self) {
         if !self.is_fast() {
             return;
         }
-        self.v = Some(self.v().with_length(self.speed().min(self.max_speed())))
+        self.v_ = Some(self.v().with_length(self.speed().min(self.max_speed())))
     }
 
     pub fn update_v(&mut self, command: Command) {
@@ -88,7 +88,7 @@ impl Player {
             return;
         }
         let target_v = (command.point() - self.point()).with_length(self.max_speed());
-        self.v = Some(
+        self.v_ = Some(
             self.v() + (target_v - self.v()) * (config().inertion_factor / self.m()),
         );
         self.limit_speed();
@@ -113,10 +113,10 @@ impl Player {
             speed = (speed - config().viscosity).max(max_speed);
         }
         if speed <= max_speed {
-            self.is_fast = Some(false);
+            self.is_fast_ = Some(false);
             speed = max_speed;
         }
-        self.v = Some(self.v().with_length(speed));
+        self.v_ = Some(self.v().with_length(speed));
     }
 
     pub fn can_shrink(&self) -> bool {
@@ -127,7 +127,7 @@ impl Player {
         if !self.can_shrink() {
             return;
         }
-        self.m -= (self.m() - config().min_shrink_mass) * config().shrink_factor;
+        self.m_ -= (self.m() - config().min_shrink_mass) * config().shrink_factor;
         self.update_r();
     }
 }

@@ -2,8 +2,8 @@ use models::*;
 
 #[derive(Debug)]
 pub struct Food {
-    id: String,
-    point: Point,
+    pub id_: String,
+    pub point_: Point,
 }
 
 impl Food {
