@@ -6,12 +6,24 @@ pub struct Food {
     pub point_: Point,
 }
 
-impl Food {
-    pub fn r(&self) -> f64 {
+impl HasPoint for Food {
+    fn point(&self) -> Point {
+        self.point_
+    }
+}
+
+impl Circle for Food {
+    fn r(&self) -> f64 {
         config().food_radius
     }
+}
 
-    pub fn m(&self) -> f64 {
+impl Blob for Food {
+    fn id(&self) -> &BlobId {
+        &self.id_
+    }
+
+    fn m(&self) -> f64 {
         config().food_mass
     }
 }

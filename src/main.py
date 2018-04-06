@@ -422,7 +422,7 @@ class Strategy:
 
     def predict_states(self, state, commands, skips):
         for i, command in enumerate(commands):
-            slow = len(commands) - 1
+            slow = i == (len(commands) - 1)
             state = self.predict_state(state, command, slow)
         return state
 

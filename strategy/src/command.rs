@@ -1,5 +1,6 @@
 use models::Point;
 
+#[derive(Debug, Clone)]
 pub struct Command {
     point: Point,
     debug_messages: Vec<String>,
@@ -23,6 +24,12 @@ impl Command {
             #[cfg(feature = "debug")]
             debug_circles: vec![],
         }
+    }
+
+    pub fn from_point(point: Point) -> Command {
+        let mut command = Command::new();
+        command.set_point(point);
+        command
     }
 
     pub fn add_debug_message(&mut self, message: String) {

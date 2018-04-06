@@ -18,6 +18,6 @@ pub trait Circle: HasPoint {
 }
 
 pub trait Blob: Circle {
-    fn id(&self) -> BlobId;
+    fn id(&self) -> &BlobId;
     fn m(&self) -> f64;
 }

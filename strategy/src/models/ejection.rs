@@ -6,12 +6,24 @@ pub struct Ejection {
     pub point_: Point,
 }
 
-impl Ejection {
-    pub fn r(&self) -> f64 {
+impl HasPoint for Ejection {
+    fn point(&self) -> Point {
+        self.point_
+    }
+}
+
+impl Circle for Ejection {
+    fn r(&self) -> f64 {
         config().ejection_radius
     }
+}
 
-    pub fn m(&self) -> f64 {
+impl Blob for Ejection {
+    fn id(&self) -> &BlobId {
+        &self.id_
+    }
+
+    fn m(&self) -> f64 {
         config().ejection_mass
     }
 }

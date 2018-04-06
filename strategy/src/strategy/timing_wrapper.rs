@@ -37,14 +37,10 @@ impl<S: Strategy> Strategy for TimingWrapper<S> {
             viruses,
             enemies,
         );
-        let mut tick = tick;
         self.total += precise_time_s() - start;
         let expected = AVG_TICK_TIME_SECS * (tick + 1) as f64;
-        command.add_debug_message(format!(
-            "total: {:.2}\tbudget: {:.2}",
-            self.total,
-            expected - self.total
-        ));
+        command.add_debug_message(format!("total: {:.2}", self.total));
+        command.add_debug_message(format!("budget: {:.2}", expected - self.total));
         command
     }
 }

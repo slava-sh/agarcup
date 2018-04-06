@@ -7,14 +7,29 @@ pub struct Virus {
     pub m_: f64,
 }
 
-impl Virus {
-    impl_getter!(point() -> point_: Point);
-    impl_getter!(m() -> m_: f64);
+impl HasPoint for Virus {
+    fn point(&self) -> Point {
+        self.point_
+    }
+}
 
-    pub fn r(&self) -> f64 {
+impl Circle for Virus {
+    fn r(&self) -> f64 {
         config().virus_radius
     }
+}
 
+impl Blob for Virus {
+    fn id(&self) -> &BlobId {
+        &self.id_
+    }
+
+    fn m(&self) -> f64 {
+        self.m_
+    }
+}
+
+impl Virus {
     pub fn can_hurt(&self, other: &Player) -> bool {
         if other.r() < self.r() || !other.can_burst() {
             return false;

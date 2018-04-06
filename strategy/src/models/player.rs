@@ -1,7 +1,7 @@
 use models::*;
 use command::Command;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Player {
     pub id_: BlobId,
     pub point_: Point,
@@ -18,12 +18,24 @@ impl HasPoint for Player {
     }
 }
 
+impl Circle for Player {
+    fn r(&self) -> f64 {
+        self.r_
+    }
+}
+
+impl Blob for Player {
+    fn id(&self) -> &BlobId {
+        &self.id_
+    }
+
+    fn m(&self) -> f64 {
+        self.m_
+    }
+}
+
 impl Player {
-    impl_getter!(id() -> id_: &BlobId);
-    //impl_getter!(point() -> point_: Point);
     impl_getter!(point_mut() -> point_: &mut Point);
-    impl_getter!(m() -> m_: f64);
-    impl_getter!(r() -> r_: f64);
 
     pub fn can_eat<Other: Blob>(&self, other: &Other) -> bool {
         if !(self.m() > other.m() * config().mass_eat_factor) {
@@ -34,7 +46,7 @@ impl Player {
         min_r < self.r()
     }
 
-    pub fn can_see<Other: Blob>(&self, other: &Other) -> bool {
+    pub fn can_see<Other: Circle>(&self, other: &Other) -> bool {
         let p = self.point() + Point::from_polar(config().vis_shift, self.angle());
         let vision_radius = self.r() * config().vis_factor; // TODO: Not always true.
         let max_dist = vision_radius + other.r();
@@ -90,7 +102,7 @@ impl Player {
         self.v_ = Some(self.v().with_length(self.speed().min(self.max_speed())))
     }
 
-    pub fn update_v(&mut self, command: Command) {
+    pub fn update_v(&mut self, command: &Command) {
         if self.is_fast() {
             return;
         }

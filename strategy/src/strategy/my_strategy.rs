@@ -1,11 +1,13 @@
 use std::collections::{HashSet, VecDeque};
+use std::cell::RefCell;
 use std::rc::Rc;
+use std::f64::consts::PI;
 
 use strategy::*;
 use config::config;
 
 const ROOT_EPS: f64 = 1.0;
-//const DISCOVERY_ANGLES = np.linspace(0, 2 * math.pi, 4 * 3)[:-1]
+static DISCOVERY_ANGLES: &'static [f64] = &[0.0, PI / 2.0, -PI / 2.0]; //np.linspace(0, 2 * math.pi, 4 * 3)[:-1]
 const MAX_POWER_BLOBS: i64 = 1;
 const MAX_DEPTH: i64 = 7;
 const MIN_SKIPS: i64 = 5;
@@ -16,17 +18,23 @@ const SAFETY_MARGIN_FACTOR: f64 = 2.5;
 const SAFETY_MARGIN_PENALTY: f64 = -3.0;
 
 pub struct MyStrategy {
-    root: Option<Rc<Node>>,
+    root: Option<SharedNode>,
     commands: VecDeque<Command>,
+    food: Vec<Food>,
+    ejections: Vec<Ejection>,
+    viruses: Vec<Virus>,
+    enemies: Vec<Player>,
 }
 
 struct Node {
     state: State,
-    parent: Rc<Node>,
+    parent: Option<SharedNode>,
     commands: Vec<Command>,
-    chilren: Vec<Rc<Node>>,
+    children: Vec<SharedNode>,
     score: f64,
 }
+
+type SharedNode = Rc<RefCell<Node>>;
 
 impl Node {
     fn recompute_tip_score(&mut self) {
@@ -58,7 +66,7 @@ impl Node {
 struct State {
     tick: i64,
     my_blobs: Vec<Player>,
-    eaten: HashSet<BlobId>,
+    eaten: Rc<HashSet<BlobId>>,
 }
 
 impl State {
@@ -72,6 +80,10 @@ impl MyStrategy {
         MyStrategy {
             root: None,
             commands: VecDeque::new(),
+            food: vec![],
+            ejections: vec![],
+            viruses: vec![],
+            enemies: vec![],
         }
     }
 }
@@ -80,243 +92,359 @@ impl Strategy for MyStrategy {
     fn tick(
         &mut self,
         tick: i64,
-        mut my_blobs: Vec<Player>,
-        mut food: Vec<Food>,
-        mut ejections: Vec<Ejection>,
-        mut viruses: Vec<Virus>,
-        mut enemies: Vec<Player>,
+        my_blobs: Vec<Player>,
+        food: Vec<Food>,
+        ejections: Vec<Ejection>,
+        viruses: Vec<Virus>,
+        enemies: Vec<Player>,
     ) -> Command {
         let mut command = Command::new();
 
-        my_blobs.sort_by(|a, b| {
-            a.m().partial_cmp(&b.m()).unwrap_or_else(
-                || a.id().cmp(&b.id()),
-            )
-        });
+        self.food = food;
+        self.ejections = ejections;
+        self.viruses = viruses;
+        self.enemies = enemies;
+
+        let mut my_blobs = my_blobs;
+        my_blobs.sort_by(|a, b| a.m().partial_cmp(&b.m()).expect("incomparable mass"));
         let me = &my_blobs[0];
 
         let speed = (me.speed() + me.max_speed()) / 2.0;
         let skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
 
-        if self.root.is_none() || self.root.unwrap().state.me().is_none() ||
-            (self.commands.is_empty() &&
-                 self.root.unwrap().state.me().unwrap().point().qdist(
-                    me.point(),
-                ) > ROOT_EPS.powi(2))
-        {
-            if (cfg!(feature = "debug") && self.root.is_some() &&
-                    self.root.unwrap().state.me().is_some())
-            {
-                command.add_debug_message(format!("RESET"));
-                command.add_debug_message(format!(
-                    "dist = {:.2}",
-                    self.root.unwrap().state.me().unwrap().point().dist(
-                        me.point(),
-                    )
-                ));
+        let mut should_reset_root = true;
+        if let Some(ref root) = self.root {
+            if let Some(ref root_me) = root.borrow().state.me() {
+                should_reset_root = self.commands.is_empty() &&
+                    root_me.point().qdist(me.point()) > ROOT_EPS.powi(2)
             }
-            self.root = self.new_tip(State {
-                tick,
-                my_blobs,
-                eaten: HashSet::new(),
-            });
-            self.add_nodes(self.root, skips);
+        };
+        if should_reset_root {
+            if cfg!(feature = "debug") {
+                if let Some(ref root) = self.root {
+                    if let Some(ref root_me) = root.borrow().state.me() {
+                        command.add_debug_message(format!("RESET"));
+                        command.add_debug_message(
+                            format!("dist = {:.2}", root_me.point().dist(me.point())),
+                        );
+                    }
+                }
+            }
+            self.root.take().map(
+                |root| root.borrow_mut().children.clear(),
+            );
+            let root = Rc::new(RefCell::new(Node {
+                state: State {
+                    tick,
+                    my_blobs: my_blobs.to_vec(),
+                    eaten: Rc::new(HashSet::new()),
+                },
+                parent: None,
+                commands: vec![],
+                children: vec![],
+                score: 0.0,
+            }));
+            self.root = Some(Rc::clone(&root));
+            root.borrow_mut().recompute_tip_score();
+            self.add_nodes(root, skips);
+        }
+        let root = Rc::clone(self.root.as_ref().expect("root is None after reset"));
+
+        if self.commands.is_empty() {
+            let target = find_nodes(&root)
+                .into_iter()
+                .filter(|node| !Rc::ptr_eq(&node, &root))
+                .max_by(|a, b| {
+                    a.borrow().score.partial_cmp(&b.borrow().score).expect(
+                        "incomparable scores",
+                    )
+                })
+                .expect("no nodes found");
+            //if self.debug {
+            //    self.debug_tip = target;
+            //}
+            root.borrow_mut().children.clear();
+            let root = self.get_next_root(target);
+            root.borrow_mut().parent = None;
+            self.root = Some(Rc::clone(&root));
+            for command in root.borrow().commands.iter() {
+                self.commands.push_back(command.clone());
+            }
+            self.add_nodes(root, skips);
         }
 
-        command.set_point(Point::new(500.0, 500.0));
-        config();
+        command.set_point(self.commands.pop_front().expect("no commands left").point());
+
+        if cfg!(feature = "debug") {
+            fn go(node: &SharedNode, tree_size: &mut i64, command: &mut Command) {
+                *tree_size = *tree_size + 1;
+                for me in node.borrow().state.my_blobs.iter() {
+                    //command.add_debug_circle( Circle(me.x, me.y, 1), "black", 0.3);
+                }
+                for child in node.borrow().children.iter() {
+                    //for (n, c) in node.state.my_blobs.iter().zip(child.state.my_blobs.iter()) {
+                    //    command.add_debug_line([n, c], "black", 0.3)
+                    //}
+                    go(child, tree_size, command);
+                }
+            }
+
+            let mut tree_size = 0;
+            go(&root, &mut tree_size, &mut command);
+
+            //for me in self.root.state.my_blobs {
+            //    command.add_debug_circle(
+            //        Circle(me.x, me.y, me.r), "green", 0.1)
+            //for me in self.debug_tip.state.my_blobs {
+            //    command.add_debug_circle(Circle(me.x, me.y, 2), "red")
+            //node = self.debug_tip
+            //while node.parent.is_some() {
+            //    for n, p in zip(node.state.my_blobs,
+            //                    node.parent.state.my_blobs) {
+            //        command.add_debug_line([n, p], "black")
+            //    node = node.parent
+
+            //for food in food + ejections + viruses + enemies {
+            //    if food.id in self.debug_tip.state.eaten {
+            //        command.add_debug_circle(
+            //            Circle(food.x, food.y, food.r + 2), "green", 0.5)
+            //for danger in viruses + enemies {
+            //    command.add_debug_circle(
+            //        Circle(danger.x, danger.y, danger.r + 2), "red", 0.1)
+
+            command.add_debug_message(format!("skips: {}", skips));
+            command.add_debug_message(format!("queue: {}", self.commands.len()));
+            command.add_debug_message(format!("tree: {}", tree_size));
+
+            //if command.split {
+            //    command.add_debug_message("SPLIT")
+
+            //for message in self.debug_messages {
+            //    command.add_debug_message(message)
+        }
+
         command
     }
 }
 
-//        if !self.commands {
-//            nodes = find_nodes(self.root)
-//            target = max(
-//                (node for node in nodes if node is !self.root),
-//                key=lambda node: node.score)
-//            if self.debug {
-//                self.debug_tip = target
-//            self.root = self.get_next_root(target)
-//            self.root.parent = None
-//            for command in self.root.commands {
-//                self.commands.append(
-//                    Command(x=command.x, y=command.y, split=command.split))
-//            self.add_nodes(self.root, skips)
-//
-//        command = self.commands.popleft()
-//        if self.debug {
-//            tree_size = 0
-//
-//            fn go(node) {
-//                nonlocal tree_size
-//                tree_size += 1
-//                for me in node.state.my_blobs {
-//                    command.add_debug_circle(
-//                        Circle(me.x, me.y, 1), "black", 0.3)
-//                for child in node.children {
-//                    for n, c in zip(node.state.my_blobs, child.state.my_blobs) {
-//                        command.add_debug_line([n, c], "black", 0.3)
-//                    go(child)
-//
-//            go(self.root)
-//
-//            for me in self.root.state.my_blobs {
-//                command.add_debug_circle(
-//                    Circle(me.x, me.y, me.r), "green", 0.1)
-//            for me in self.debug_tip.state.my_blobs {
-//                command.add_debug_circle(Circle(me.x, me.y, 2), "red")
-//            node = self.debug_tip
-//            while node.parent.is_some() {
-//                for n, p in zip(node.state.my_blobs,
-//                                node.parent.state.my_blobs) {
-//                    command.add_debug_line([n, p], "black")
-//                node = node.parent
-//
-//            for food in food + ejections + viruses + enemies {
-//                if food.id in self.debug_tip.state.eaten {
-//                    command.add_debug_circle(
-//                        Circle(food.x, food.y, food.r + 2), "green", 0.5)
-//            for danger in viruses + enemies {
-//                command.add_debug_circle(
-//                    Circle(danger.x, danger.y, danger.r + 2), "red", 0.1)
-//
-//            command.add_debug_message("skips: {}".format(skips))
-//            command.add_debug_message("queue: {}".format(len(self.commands)))
-//            command.add_debug_message("tree: {}".format(tree_size))
-//
-//            if command.split {
-//                command.add_debug_message("SPLIT")
-//
-//            for message in self.debug_messages {
-//                command.add_debug_message(message)
-//        return command
-//
-//    fn add_nodes(self, root, skips) {
-//        for me in root.state.my_blobs[:MAX_POWER_BLOBS] {
-//            for angle in DISCOVERY_ANGLES {
-//                v = Point.from_polar(config().speed_factor, me.angle() + angle)
-//                node = root
-//                for _ in range(MAX_DEPTH) {
-//                    if node.state.me().is_none() || !me.can_see(node.state.me()) {
-//                        break
-//                    commands = [
-//                        Command.go_to(node.state.me() + v)
-//                        for i in range(skips)
-//                    ]
-//                    child = self.new_tip(
-//                        state=self.predict_states(node.state, commands, skips),
-//                        parent=node,
-//                        commands=commands)
-//                    node.children.append(child)
-//                    node = child
-//
-//    fn get_next_root(self, target) {
-//        node = target
-//        while node.parent.is_some() && node.parent.parent.is_some() {
-//            node = node.parent
-//        return node
-//
-//    fn new_tip(self, *args, **kwargs) {
-//        tip = Node(*args, **kwargs)
-//        tip.compute_tip_score()
-//        return tip
-//
-//    fn predict_states(self, state, commands, skips) {
-//        for i, command in enumerate(commands) {
-//            slow = len(commands) - 1
-//            state = self.predict_state(state, command, slow)
-//        return state
-//
-//    fn predict_state(self, state, command, slow) {
-//        # TODO: Fix precision error when eating food at max speed.
-//        my_blobs = [copy.copy(me) for me in state.my_blobs]
-//
-//        # Following the oringial mechanic.
-//        # apply_strategies: update v.
-//        for me in my_blobs {
-//            me.update_v(command)
-//
-//        # shrink_players.
-//        tick = state.tick + 1
-//        if tick % config().shrink_every_tick == 0 {
-//            for me in my_blobs {
-//                me.shrink()
-//
-//        # who_is_eaten: update m.
-//        if slow {
-//            eaten = state.eaten.copy()
-//            for food in self.food + self.ejections + self.enemies {
-//                if food.id in eaten {
-//                    continue
-//                i, me = find_nearest_me(food, lambda me: me.can_eat(food),
-//                                        my_blobs)
-//                if me.is_some() {
-//                    eaten.add(food.id)
-//                    me.m += food.m
-//            for enemy in self.enemies {
-//                if enemy.id in eaten {
-//                    continue
-//                i, me = find_nearest_me(enemy, lambda me: enemy.can_eat(me),
-//                                        my_blobs)
-//                if me.is_some() {
-//                    del my_blobs[i]  # Die.
-//        else {
-//            eaten = state.eaten
-//
-//        # TODO: who_need_fusion.
-//
-//        # who_intersected_virus.
-//        if slow {
-//            for virus in self.viruses {
-//                i, me = find_nearest_me(virus, lambda me: me.can_burst(), my_blobs)
-//                if me.is_some() {
-//                    my_blobs[i:i + 1] = self.burst(me, virus)
-//
-//        # update_by_state: update r, limit v, split.
-//        for me in my_blobs {
-//            me.update_r()
-//            me.limit_speed()
-//        if command.split {
-//            my_blobs = [new_me for me in my_blobs for new_me in self.split(me)]
-//
-//        # move_moveables: collide (TODO), move, apply viscosity, update ttf.
-//        for me in my_blobs {
-//            me.apply_v()
-//            me.apply_viscosity()
-//            if me.ttf > 0 {
-//                me.ttf -= 1
-//
-//        my_blobs.sort(key=lambda me: (me.m, me.id), reverse=True)
-//        return State(tick, my_blobs, eaten)
-//
-//    fn split(self, me) {
-//        if !me.can_split() {
-//            return [me]
-//        m = me.m / 2
-//        v = Point.from_polar(config().split_start_speed, me.angle())
-//        return [
-//            Me(
-//                id=me.id + "+1",  # TODO: Compute correct ids.
-//                x=me.x,
-//                y=me.y,
-//                m=m,
-//                v=v,
-//                is_fast=True,
-//                ttf=config().ticks_til_fusion),
-//            Me(id=me.id + "+2",
-//               x=me.x,
-//               y=me.y,
-//               m=m,
-//               v=me.v,
-//               is_fast=me.is_fast,
-//               ttf=config().ticks_til_fusion)
-//        ]
-//
-//    fn burst(self, me, virus) {
-//        if virus.can_hurt(me) {
-//            # Assume we die. TODO.
-//            return []
-//        return [me]
+impl MyStrategy {
+    fn add_nodes(&self, root: SharedNode, skips: i64) {
+        let power_blobs = root.borrow().state.my_blobs[..MAX_POWER_BLOBS as usize].to_vec();
+        for me in power_blobs {
+            for angle in DISCOVERY_ANGLES.iter() {
+                let v = Point::from_polar(config().speed_factor, me.angle() + angle);
+                let mut node = Rc::clone(&root);
+                for _depth in 0..MAX_DEPTH {
+                    if node.borrow().state.me().is_none() ||
+                        !me.can_see(node.borrow().state.me().unwrap())
+                    {
+                        break;
+                    }
+                    let commands: Vec<_> = (0..skips)
+                        .map(|_i| {
+                            Command::from_point(node.borrow().state.me().unwrap().point() + v)
+                        })
+                        .collect();
+                    let child = Rc::new(RefCell::new(Node {
+                        state: self.predict_states(&node.borrow().state, commands.as_ref(), skips),
+                        parent: Some(Rc::clone(&node)),
+                        commands,
+                        children: vec![],
+                        score: 0.0,
+                    }));
+                    child.borrow_mut().recompute_tip_score();
+                    node.borrow_mut().children.push(Rc::clone(&child));
+                    node = child;
+                }
+            }
+        }
+    }
+
+    fn get_next_root(&self, target: SharedNode) -> SharedNode {
+        let mut node = target;
+        loop {
+            let mut next = None;
+            if let Some(ref parent) = node.borrow().parent {
+                if parent.borrow().parent.is_some() {
+                    next = Some(Rc::clone(parent));
+                }
+            }
+            match next {
+                Some(next) => node = next,
+                None => break,
+            }
+        }
+        node
+    }
+
+
+    fn predict_states(&self, state: &State, commands: &[Command], _skips: i64) -> State {
+        let mut state = self.predict_state(state, &commands[0], true);
+        for (i, command) in commands[1..].iter().enumerate() {
+            let slow = i == (commands.len() - 1);
+            state = self.predict_state(&state, command, slow);
+        }
+        state
+    }
+
+    fn predict_state(&self, state: &State, command: &Command, slow: bool) -> State {
+        let mut my_blobs = state.my_blobs.clone();
+
+        // Following the oringial mechanic.
+        // apply_strategies: update v.
+        for me in my_blobs.iter_mut() {
+            me.update_v(command);
+        }
+
+
+        // shrink_players.
+        let tick = state.tick + 1;
+        if tick % config().shrink_every_tick == 0 {
+            for me in my_blobs.iter_mut() {
+                me.shrink();
+            }
+        }
+
+
+        // who_is_eaten: update m.
+        let eaten = if slow {
+            fn maybe_eat<B: Blob>(blob: &B, my_blobs: &mut [Player], eaten: &mut HashSet<BlobId>) {
+                if eaten.contains(blob.id()) {
+                    return;
+                }
+                if let Some(i) = find_nearest_me(blob, |me| me.can_eat(blob), my_blobs) {
+                    eaten.insert(blob.id().to_string());
+                    my_blobs[i].m_ += blob.m();
+                }
+            }
+
+            let mut eaten = state.eaten.as_ref().clone();
+            for blob in self.food.iter() {
+                maybe_eat(blob, my_blobs.as_mut(), &mut eaten);
+            }
+            for blob in self.ejections.iter() {
+                maybe_eat(blob, my_blobs.as_mut(), &mut eaten);
+            }
+            for blob in self.enemies.iter() {
+                maybe_eat(blob, my_blobs.as_mut(), &mut eaten);
+            }
+
+            for enemy in self.enemies.iter() {
+                if eaten.contains(enemy.id()) {
+                    continue;
+                }
+                if let Some(i) = find_nearest_me(enemy, |me| enemy.can_eat(me), my_blobs.as_ref()) {
+                    //TODO: del(my_blobs[i]); // Die.
+                }
+            }
+            Rc::new(eaten)
+        } else {
+            Rc::clone(&state.eaten)
+        };
+
+        // TODO: who_need_fusion.
+
+        // who_intersected_virus.
+        if slow {
+            for virus in self.viruses.iter() {
+                if let Some(i) = find_nearest_me(virus, |me| me.can_burst(), my_blobs.as_ref()) {
+                    //TODO: my_blobs[i: i + 1] = self.burst(me, virus);
+                }
+            }
+        }
+
+        // update_by_state: update r, limit v, split.
+        for me in my_blobs.iter_mut() {
+            me.update_r();
+            me.limit_speed();
+        }
+        // TODO
+        //if command.split {
+        //    my_blobs = [new_me for me in my_blobs for new_me in self.split(me)];
+        //}
+
+        // move_moveables: collide (TODO), move, apply viscosity, update ttf.
+        for me in my_blobs.iter_mut() {
+            me.apply_v();
+            me.apply_viscosity();
+            if let Some(ttf) = me.ttf_ {
+                if ttf > 0 {
+                    me.ttf_ = Some(ttf - 1);
+                }
+            }
+        }
+
+        my_blobs.sort_by(|a, b| a.m().partial_cmp(&b.m()).expect("incomparable mass"));
+        State {
+            tick,
+            my_blobs,
+            eaten,
+        }
+    }
+
+    //    fn split(self, me) {
+    //        if !me.can_split() {
+    //            return [me]
+    //        m = me.m / 2
+    //        v = Point::from_polar(config().split_start_speed, me.angle())
+    //        return [
+    //            Me(
+    //                id=me.id + "+1",  // TODO: Compute correct ids.
+    //                x=me.x,
+    //                y=me.y,
+    //                m=m,
+    //                v=v,
+    //                is_fast=True,
+    //                ttf=config().ticks_til_fusion),
+    //            Me(id=me.id + "+2",
+    //               x=me.x,
+    //               y=me.y,
+    //               m=m,
+    //               v=me.v,
+    //               is_fast=me.is_fast,
+    //               ttf=config().ticks_til_fusion)
+    //        ]
+    //
+    //    fn burst(self, me, virus) {
+    //        if virus.can_hurt(me) {
+    //            // Assume we die. TODO.
+    //            return []
+    //        return [me]
+}
+
+fn find_nodes(root: &SharedNode) -> Vec<SharedNode> {
+    fn go(node: &SharedNode, nodes: &mut Vec<SharedNode>) {
+        nodes.push(Rc::clone(node));
+        for child in node.borrow().children.iter() {
+            go(child, nodes);
+        }
+    }
+
+    let mut nodes = vec![];
+    go(root, &mut nodes);
+    nodes
+}
+
+fn find_nearest_me<T, P>(target: &T, predicate: P, my_blobs: &[Player]) -> Option<usize>
+where
+    T: HasPoint,
+    P: Fn(&Player) -> bool,
+{
+    my_blobs
+        .iter()
+        .enumerate()
+        .filter(|&(_, me)| predicate(me))
+        .min_by(|&(_, a), &(_, b)| {
+            a.point()
+                .qdist(target.point())
+                .partial_cmp(&b.point().qdist(target.point()))
+                .expect("incomparable distances")
+        })
+        .map(|(i, _)| i)
+}
+
+
+
 //
 //    fn debug_prediction_error(self, tick, my_blobs, command) {
 //        if hasattr(self, "next_blobs") {
@@ -344,28 +472,6 @@ impl Strategy for MyStrategy {
 //        for nb in self.next_blobs {
 //            command.add_debug_circle(Circle(nb.x, nb.y, nb.r), "cyan", 0.5)
 //        self.last_command = command
-//
-//
-//fn find_nearest_me(target, predicate, my_blobs) {
-//    return min(
-//        ((i, me) for i, me in enumerate(my_blobs) if predicate(me)),
-//        key=lambda i_me: i_me[1].qdist(target),
-//        default=(None, None))
-//
-//
-//fn find_nodes(roots) {
-//    if !isinstance(roots, collections.Iterable) {
-//        roots = [roots]
-//
-//    fn go(node, nodes) {
-//        nodes.append(node)
-//        for child in node.children {
-//            go(child, nodes)
-//
-//    nodes = []
-//    for root in roots {
-//        go(root, nodes)
-//    return nodes
 //
 //
 //        self.viruses = [v for v in viruses if me.can_see(v)]
