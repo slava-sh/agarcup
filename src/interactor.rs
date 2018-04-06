@@ -150,6 +150,9 @@ fn print_command(command: Command) {
         x: command.point().x,
         y: command.point().y,
         debug: command.debug_messages().join("; "),
+        split: command.split(),
+        #[cfg(feature = "debug")]
+        pause: command.pause(),
         #[cfg(feature = "debug")]
         draw: Draw {
             lines: command
@@ -190,6 +193,9 @@ struct Response {
     x: f64,
     y: f64,
     debug: String,
+    split: bool,
+    #[cfg(feature = "debug")]
+    pause: bool,
     #[cfg(feature = "debug")]
     draw: Draw,
 }

@@ -286,16 +286,27 @@ impl Strategy for MyStrategy {
                 }
             }
 
-            //for danger in viruses + enemies {
-            //    command.add_debug_circle(
-            //        Circle(danger.x, danger.y, danger.r + 2), "red", 0.1)
+            for blob in iter::empty()
+                .chain(self.viruses.iter().map(as_blob))
+                .chain(self.enemies.iter().map(as_blob))
+            {
+                command.add_debug_circle(DebugCircle {
+                    center: blob.point(),
+                    radius: blob.r() + 2.0,
+                    color: String::from("red"),
+                    opacity: 0.1,
+                });
+            }
 
             command.add_debug_message(format!("skips: {}", skips));
             command.add_debug_message(format!("queue: {}", self.commands.len()));
             command.add_debug_message(format!("tree: {}", tree_size));
-
-            //if command.split {
-            //    command.add_debug_message("SPLIT")
+            if command.split() {
+                command.add_debug_message(format!("SPLIT"));
+            }
+            if command.pause() {
+                command.add_debug_message(format!("PAUSE"));
+            }
         }
 
         command

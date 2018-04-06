@@ -4,6 +4,7 @@ use models::{Point, HasPoint};
 pub struct Command {
     point_: Point,
     split_: bool,
+    pause_: bool,
     debug_messages_: Vec<String>,
     #[cfg(feature = "debug")]
     debug_lines_: Vec<DebugLine>,
@@ -22,6 +23,8 @@ impl Command {
         Command {
             point_: Point::zero(),
             split_: false,
+            #[cfg(feature = "debug")]
+            pause_: false,
             debug_messages_: vec![],
             #[cfg(feature = "debug")]
             debug_lines_: vec![],
@@ -46,6 +49,14 @@ impl Command {
 
     pub fn set_split(&mut self) {
         self.split_ = true;
+    }
+
+    pub fn pause(&self) -> bool {
+        self.pause_
+    }
+
+    pub fn set_pause(&mut self) {
+        self.pause_ = true;
     }
 
     pub fn debug_messages(&self) -> &[String] {
