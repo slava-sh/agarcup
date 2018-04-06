@@ -1,4 +1,28 @@
+use std::sync::{Mutex, MutexGuard};
+
 use serde_json;
+
+pub fn config() -> &'static Config {
+    &*SINGLETON
+}
+
+lazy_static! {
+    static ref INITIALIZER: Mutex<Option<Config>> = Mutex::new(None);
+    static ref SINGLETON: Config = {
+        lock_initializer().take().expect("config::INITIALIZER is None")
+    };
+}
+
+pub fn init_config(config: Config) {
+    *lock_initializer() = Some(config);
+    &*SINGLETON;
+}
+
+fn lock_initializer<'mutex>() -> MutexGuard<'mutex, Option<Config>> {
+    INITIALIZER.lock().expect(
+        "config::INITIALIZER.lock() failed",
+    )
+}
 
 macro_rules! impl_config {
     ($($name:ident: $type:ty $(= $value:expr)*),* $(,)*) => {
@@ -32,7 +56,22 @@ macro_rules! get_or_default {
     };
 }
 
-impl_config!{
+struct ValueWrapper<'a>(&'a serde_json::Value);
+
+macro_rules! impl_into {
+    ($type:ty, $method:ident) => {
+        impl<'a> Into<$type> for ValueWrapper<'a> {
+            fn into(self) -> $type {
+                (self.0).$method().expect("conversion failed")
+            }
+        }
+    };
+}
+
+impl_into!(i64, as_i64);
+impl_into!(f64, as_f64);
+
+impl_config! {
     game_width: i64,
     game_height: i64,
     viscosity: f64,
@@ -57,25 +96,4 @@ impl_config!{
     min_shrink_mass: f64 = 100,
     shrink_factor: f64 = 0.01,
     min_burst_mass: f64 = 60.0,
-}
-
-struct ValueWrapper<'a>(&'a serde_json::Value);
-
-macro_rules! impl_into {
-    ($type:ty, $method:ident) => {
-        impl<'a> Into<$type> for ValueWrapper<'a> {
-            fn into(self) -> $type {
-                (self.0).$method().expect("conversion failed")
-            }
-        }
-    };
-}
-
-impl_into!(i64, as_i64);
-impl_into!(f64, as_f64);
-
-static SINGLETON: Option<Config> = None;
-
-pub fn config() -> &'static Config {
-    SINGLETON.as_ref().expect("SINGLETON is None")
 }

@@ -1,5 +1,4 @@
 use models::*;
-use strategy::*;
 
 #[derive(Debug)]
 pub struct Food {

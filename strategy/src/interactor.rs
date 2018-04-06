@@ -1,55 +1,47 @@
-use strategy::*;
-use config::Config;
-
 use serde_json;
 use std::io;
 
-pub struct Interactor {}
+use strategy::{Strategy, Command, TickData};
+use config::{Config, init_config};
 
-impl Interactor {
-    pub fn new() -> Self {
-        Interactor {}
+pub fn run() {
+    init_config(read_config());
+    let mut strategy = Strategy::new();
+    let mut tick = 0;
+    while let Some(data) = read_tick_data() {
+        let command = strategy.tick(tick, data);
+        print_command(command);
+        tick += 1;
     }
+}
 
-    pub fn run(self) {
-        let config = self.read_config();
-        let strategy = Strategy::new(config);
-        let mut tick = 0;
-        while let Some(data) = self.read_tick_data() {
-            let command = strategy.tick(tick, data);
-            self.print_command(command);
-            tick += 1;
-        }
-    }
+fn read_config() -> Config {
+    Config::from_json(read_json())
+}
 
-    fn read_config(&self) -> Config {
-        Config::from_json(self.read_json())
-    }
+fn read_tick_data() -> Option<TickData> {
+    let mut json = read_json();
+    Some(TickData {})
+}
 
-    fn read_tick_data(&self) -> Option<TickData> {
-        let mut json = self.read_json();
-        Some(TickData {})
-    }
+fn read_json() -> serde_json::Value {
+    serde_json::from_str(&read_line()).expect("parse JSON")
+}
 
-    fn read_json(&self) -> serde_json::Value {
-        serde_json::from_str(&self.read_line()).expect("parse JSON")
-    }
+fn read_line() -> String {
+    let mut line = String::new();
+    io::stdin().read_line(&mut line).expect("read line");
+    line
+}
 
-    fn read_line(&self) -> String {
-        let mut line = String::new();
-        io::stdin().read_line(&mut line).expect("read line");
-        line
-    }
-
-    fn print_command(&self, command: Command) {
-        let r = Response::new(50., 50., "nothring");
-        println!("{}", serde_json::to_string(&r).unwrap());
-        //if cfg!(feature = "debug") {
-        //    eprintln!("debug!");
-        //} else {
-        //    eprintln!("no debug!");
-        //}
-    }
+fn print_command(command: Command) {
+    let r = Response::new(50., 50., "nothring");
+    println!("{}", serde_json::to_string(&r).unwrap());
+    //if cfg!(feature = "debug") {
+    //    eprintln!("debug!");
+    //} else {
+    //    eprintln!("no debug!");
+    //}
 }
 
 #[derive(Serialize, Deserialize)]

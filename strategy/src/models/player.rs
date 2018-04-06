@@ -14,7 +14,7 @@ pub struct Player {
 
 impl Player {
     impl_getter!(point() -> Point);
-    impl_getter!(point_mut() -> &mut Point);
+    impl_getter!(point_mut() -> point: &mut Point);
     impl_getter!(m() -> f64);
     impl_getter!(r() -> f64);
 

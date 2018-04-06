@@ -1,3 +1,5 @@
+use config::config;
+
 pub trait Circle {
     fn point(&self) -> Point;
     fn r(&self) -> f64;
@@ -19,4 +21,3 @@ pub use self::food::Food;
 pub use self::ejection::Ejection;
 pub use self::virus::Virus;
 pub use self::player::Player;
-use config::config;
