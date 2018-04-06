@@ -1,5 +1,4 @@
 /local_runner.app
-/LocalRunner.ini
-/game.txt
-.ropeproject
+/target
 LocalRunner.ini
+Cargo.lock
