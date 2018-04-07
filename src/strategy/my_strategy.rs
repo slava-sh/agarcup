@@ -83,6 +83,9 @@ impl Node {
         score += me.m();
         score += me.speed() * SPEED_REWARD_FACTOR;
 
+        // TODO: safety.
+        // TODO: global goal.
+
         let safety_margin = me.r() * SAFETY_MARGIN_FACTOR;
         if me.x() < safety_margin || me.x() > config().game_width as f64 - safety_margin {
             score += SAFETY_MARGIN_PENALTY;
@@ -108,38 +111,37 @@ impl Strategy for MyStrategy {
         let mut command = Command::new();
 
         self.my_blobs = my_blobs;
-        self.my_blobs.sort_by(|a, b| {
-            a.m().partial_cmp(&b.m()).expect("incomparable mass")
-        });
         self.food = food;
         self.ejections = ejections;
         self.viruses = viruses;
         self.enemies = enemies;
 
-        let me = &self.my_blobs[0];
-        let speed = (me.speed() + me.max_speed()) / 2.0;
-        self.skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
-
-        let mut should_reset_root = true;
-        // TODO: Fix multiple blobs.
-        if let Some(ref root_me) = self.root.borrow().state.me() {
-            should_reset_root = self.commands.is_empty() &&
-                root_me.point().qdist(me.point()) > ROOT_EPS.powi(2)
-        }
-        if should_reset_root {
-            #[cfg(feature = "debug")] self.debug_reset_root(&mut command);
-            self.root = Rc::new(RefCell::new(Node::new(State {
-                tick,
-                my_blobs: self.my_blobs.to_vec(),
-                eaten_food: Default::default(),
-                eaten_ejections: Default::default(),
-                eaten_viruses: Default::default(),
-                eaten_enemies: Default::default(),
-            })));
-            self.add_nodes(&self.root);
-        }
-
         if self.commands.is_empty() {
+            sort_my_blobs(self.my_blobs.as_mut_slice());
+            let me = &self.my_blobs[0];
+            let speed = (me.speed() + me.max_speed()) / 2.0;
+            self.skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
+
+            if self.my_blobs.len() != self.root.borrow().state.my_blobs.len() ||
+                self.my_blobs
+                    .iter()
+                    .zip(self.root.borrow().state.my_blobs.iter())
+                    .any(|(a, b)| {
+                        a.id() != b.id() || a.point().qdist(b.point()) > ROOT_EPS.powi(2)
+                    })
+            {
+                #[cfg(feature = "debug")] self.debug_reset_root(&mut command);
+                self.root = Rc::new(RefCell::new(Node::new(State {
+                    tick,
+                    my_blobs: self.my_blobs.to_vec(),
+                    eaten_food: Default::default(),
+                    eaten_ejections: Default::default(),
+                    eaten_viruses: Default::default(),
+                    eaten_enemies: Default::default(),
+                })));
+                self.add_nodes(&self.root);
+            }
+
             self.target = find_nodes(&self.root)
                 .into_iter()
                 .filter(|node| !Rc::ptr_eq(&node, &self.root))
@@ -335,7 +337,7 @@ impl MyStrategy {
             }
         }
 
-        my_blobs.sort_by(|a, b| a.m().partial_cmp(&b.m()).expect("incomparable mass"));
+        sort_my_blobs(my_blobs.as_mut_slice());
         State {
             tick,
             my_blobs,
@@ -347,7 +349,6 @@ impl MyStrategy {
     }
 
     fn split(&self, me: Player, max_fragment_id: &mut u32) -> Vec<Player> {
-        // TODO
         if !me.can_split() {
             return vec![me];
         }
@@ -502,6 +503,10 @@ impl MyStrategy {
             command.add_debug_message(format!("PAUSE"));
         }
     }
+}
+
+fn sort_my_blobs(my_blobs: &mut [Player]) {
+    my_blobs.sort_by(|a, b| a.id().cmp(&b.id()));
 }
 
 fn find_nodes(root: &SharedNode) -> Vec<SharedNode> {

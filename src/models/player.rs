@@ -12,7 +12,7 @@ pub struct Player {
     pub ttf_: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PlayerBlobId {
     pub player_id: u32,
     pub fragment_id: u32,
