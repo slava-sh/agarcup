@@ -1,6 +1,6 @@
 use std::collections::{HashSet, VecDeque};
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::f64::consts::PI;
 
 use strategy::*;
@@ -23,20 +23,22 @@ lazy_static! {
     };
 }
 
+#[derive(Debug, Default)]
 pub struct MyStrategy {
-    root: Option<SharedNode>,
+    root: SharedNode,
     commands: VecDeque<Command>,
     food: Vec<Food>,
     ejections: Vec<Ejection>,
     viruses: Vec<Virus>,
     enemies: Vec<Player>,
     #[cfg(feature = "debug")]
-    target: Option<SharedNode>,
+    target: SharedNode,
 }
 
+#[derive(Debug, Default)]
 struct Node {
     state: State,
-    parent: Option<SharedNode>,
+    parent: Weak<RefCell<Node>>,
     commands: Vec<Command>,
     children: Vec<SharedNode>,
     score: f64,
@@ -44,6 +46,7 @@ struct Node {
 
 type SharedNode = Rc<RefCell<Node>>;
 
+#[derive(Debug, Default)]
 struct State {
     tick: i64,
     my_blobs: Vec<Player>,
@@ -108,48 +111,39 @@ impl Strategy for MyStrategy {
         let skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
 
         let mut should_reset_root = true;
-        if let Some(ref root) = self.root {
-            if let Some(ref root_me) = root.borrow().state.me() {
-                should_reset_root = self.commands.is_empty() &&
-                    root_me.point().qdist(me.point()) > ROOT_EPS.powi(2)
-            }
-        };
+        if let Some(ref root_me) = self.root.borrow().state.me() {
+            should_reset_root = self.commands.is_empty() &&
+                root_me.point().qdist(me.point()) > ROOT_EPS.powi(2)
+        }
         if should_reset_root {
             #[cfg(feature = "debug")]
             {
-                if let Some(ref root) = self.root {
-                    if let Some(ref root_me) = root.borrow().state.me() {
-                        command.add_debug_message(format!("RESET"));
-                        command.add_debug_message(
-                            format!("dist = {:.2}", root_me.point().dist(me.point())),
-                        );
-                    }
+                if let Some(ref root_me) = self.root.borrow().state.me() {
+                    command.add_debug_message(format!("RESET"));
+                    command.add_debug_message(
+                        format!("dist = {:.2}", root_me.point().dist(me.point())),
+                    );
                 }
             }
-            self.root.take().map(
-                |root| root.borrow_mut().children.clear(),
-            );
-            let root = Rc::new(RefCell::new(Node {
+            self.root = Rc::new(RefCell::new(Node {
                 state: State {
                     tick,
                     my_blobs: my_blobs.to_vec(),
                     eaten: Rc::new(HashSet::new()),
                 },
-                parent: None,
+                parent: Weak::new(),
                 commands: vec![],
                 children: vec![],
                 score: 0.0,
             }));
-            self.root = Some(Rc::clone(&root));
-            root.borrow_mut().recompute_tip_score();
-            self.add_nodes(root, skips);
+            self.root.borrow_mut().recompute_tip_score();
+            self.add_nodes(&self.root, skips);
         }
-        let root = Rc::clone(self.root.as_ref().expect("root is None after reset"));
 
         if self.commands.is_empty() {
-            let target = find_nodes(&root)
+            let target = find_nodes(&self.root)
                 .into_iter()
-                .filter(|node| !Rc::ptr_eq(&node, &root))
+                .filter(|node| !Rc::ptr_eq(&node, &self.root))
                 .max_by(|a, b| {
                     a.borrow().score.partial_cmp(&b.borrow().score).expect(
                         "incomparable scores",
@@ -158,18 +152,16 @@ impl Strategy for MyStrategy {
                 .expect("no nodes found");
             #[cfg(feature = "debug")]
             {
-                self.target = Some(Rc::clone(&target));
+                self.target = Rc::clone(&target);
             }
-            root.borrow_mut().children.clear();
-            let root = self.get_next_root(target);
-            root.borrow_mut().parent = None;
-            self.root = Some(Rc::clone(&root));
-            for command in root.borrow().commands.iter() {
+            self.root = self.get_next_root(target);
+            self.root.borrow_mut().parent = Weak::new();
+            for command in self.root.borrow().commands.iter() {
                 self.commands.push_back(
                     Command::from_point(command.point()),
                 );
             }
-            self.add_nodes(root, skips);
+            self.add_nodes(&self.root, skips);
         }
 
         command.set_point(self.commands.pop_front().expect("no commands left").point());
@@ -207,9 +199,9 @@ impl Strategy for MyStrategy {
             }
 
             let mut tree_size = 0;
-            go(&root, &mut tree_size, &mut command);
+            go(&self.root, &mut tree_size, &mut command);
 
-            for me in root.borrow().state.my_blobs.iter() {
+            for me in self.root.borrow().state.my_blobs.iter() {
                 command.add_debug_circle(DebugCircle {
                     center: me.point(),
                     radius: me.r(),
@@ -218,8 +210,7 @@ impl Strategy for MyStrategy {
                 });
             }
 
-            let target = self.target.as_ref().expect("no target");
-            for me in target.borrow().state.my_blobs.iter() {
+            for me in self.target.borrow().state.my_blobs.iter() {
                 command.add_debug_circle(DebugCircle {
                     center: me.point(),
                     radius: 2.0,
@@ -227,10 +218,10 @@ impl Strategy for MyStrategy {
                     opacity: 1.0,
                 });
             }
-            let mut node = Rc::clone(&target);
+            let mut node = Rc::clone(&self.target);
             loop {
-                let parent = match node.borrow().parent {
-                    Some(ref parent) => Rc::clone(&parent),
+                let parent = match node.borrow().parent.upgrade() {
+                    Some(parent) => parent,
                     None => break,
                 };
                 for (n, p) in node.borrow().state.my_blobs.iter().zip(
@@ -261,7 +252,7 @@ impl Strategy for MyStrategy {
                 .chain(self.viruses.iter().map(as_blob))
                 .chain(self.enemies.iter().map(as_blob))
             {
-                if target.borrow().state.eaten.contains(blob.id()) {
+                if self.target.borrow().state.eaten.contains(blob.id()) {
                     command.add_debug_circle(DebugCircle {
                         center: blob.point(),
                         radius: blob.r() + 2.0,
@@ -300,19 +291,10 @@ impl Strategy for MyStrategy {
 
 impl MyStrategy {
     pub fn new() -> MyStrategy {
-        MyStrategy {
-            root: None,
-            commands: VecDeque::new(),
-            food: vec![],
-            ejections: vec![],
-            viruses: vec![],
-            enemies: vec![],
-            #[cfg(feature = "debug")]
-            target: None,
-        }
+        Default::default()
     }
 
-    fn add_nodes(&self, root: SharedNode, skips: i64) {
+    fn add_nodes(&self, root: &SharedNode, skips: i64) {
         let power_blobs: Vec<_> = root.borrow()
             .state
             .my_blobs
@@ -337,7 +319,7 @@ impl MyStrategy {
                         .collect();
                     let child = Rc::new(RefCell::new(Node {
                         state: self.predict_states(&node.borrow().state, commands.as_ref(), skips),
-                        parent: Some(Rc::clone(&node)),
+                        parent: Rc::downgrade(&node),
                         commands,
                         children: vec![],
                         score: 0.0,
@@ -354,9 +336,9 @@ impl MyStrategy {
         let mut node = target;
         loop {
             let mut next = None;
-            if let Some(ref parent) = node.borrow().parent {
-                if parent.borrow().parent.is_some() {
-                    next = Some(Rc::clone(parent));
+            if let Some(parent) = node.borrow().parent.upgrade() {
+                if parent.borrow().parent.upgrade().is_some() {
+                    next = Some(parent);
                 }
             }
             match next {
