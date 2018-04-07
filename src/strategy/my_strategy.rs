@@ -127,9 +127,6 @@ impl Strategy for MyStrategy {
         }
 
         command.set_point(self.commands.pop_front().expect("no commands left").point());
-        if tick % 500 > 300 && self.state.my_blobs.values().next().unwrap().can_burst(1) {
-            command.set_point(self.viruses[0].point());
-        }
 
         #[cfg(feature = "debug")] self.debug(&mut command);
 
