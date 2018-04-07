@@ -1,10 +1,10 @@
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::f64::consts::PI;
-use std::iter::FromIterator;
 use std::rc::{Rc, Weak};
 
 use strategy::*;
+use strategy::mechanic::{Mechanic, State};
 use config::config;
 
 const ROOT_EPS: f64 = 1.0;
@@ -29,7 +29,7 @@ pub struct MyStrategy {
     root: SharedNode,
     commands: VecDeque<Command>,
 
-    my_blobs: BTreeMap<PlayerBlobId, Player>,
+    state: State,
     food: Vec<Food>,
     ejections: Vec<Ejection>,
     viruses: Vec<Virus>,
@@ -49,22 +49,6 @@ struct Node {
 }
 
 type SharedNode = Rc<RefCell<Node>>;
-
-#[derive(Debug, Default)]
-struct State {
-    tick: i64,
-    my_blobs: BTreeMap<PlayerBlobId, Player>,
-    eaten_food: Rc<HashSet<FoodId>>,
-    eaten_ejections: Rc<HashSet<EjectionId>>,
-    eaten_viruses: Rc<HashSet<VirusId>>,
-    eaten_enemies: Rc<HashSet<PlayerBlobId>>,
-}
-
-impl State {
-    fn me(&self) -> Option<&Player> {
-        self.my_blobs.values().next()
-    }
-}
 
 impl Node {
     fn new(state: State) -> Node {
@@ -111,19 +95,20 @@ impl Strategy for MyStrategy {
     ) -> Command {
         let mut command = Command::new();
 
-        self.my_blobs = my_blobs_to_map(my_blobs);
+        self.state = State::new(tick, my_blobs);
         self.food = food;
         self.ejections = ejections;
         self.viruses = viruses;
         self.enemies = enemies;
 
         if self.commands.is_empty() {
-            let me = &self.my_blobs.values().next().unwrap(); // TODO
+            let me = &self.state.my_blobs.values().next().unwrap(); // TODO: Move away from me.
             let speed = (me.speed() + me.max_speed()) / 2.0;
             self.skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
 
-            if self.my_blobs.len() != self.root.borrow().state.my_blobs.len() ||
-                self.my_blobs
+            if self.state.my_blobs.len() != self.root.borrow().state.my_blobs.len() ||
+                self.state
+                    .my_blobs
                     .values()
                     .zip(self.root.borrow().state.my_blobs.values())
                     .any(|(a, b)| {
@@ -132,14 +117,7 @@ impl Strategy for MyStrategy {
                     })
             {
                 #[cfg(feature = "debug")] self.debug_reset_root(&mut command);
-                self.root = Rc::new(RefCell::new(Node::new(State {
-                    tick,
-                    my_blobs: self.my_blobs.clone(),
-                    eaten_food: Default::default(),
-                    eaten_ejections: Default::default(),
-                    eaten_viruses: Default::default(),
-                    eaten_enemies: Default::default(),
-                })));
+                self.root = Rc::new(RefCell::new(Node::new(self.state.clone())));
                 self.add_nodes(&self.root);
             }
 
@@ -191,15 +169,16 @@ impl MyStrategy {
                 let v = Point::from_polar(config().speed_factor, me.angle() + angle);
                 let mut node = Rc::clone(&root);
                 for _depth in 0..MAX_DEPTH {
-                    if node.borrow().state.me().is_none() ||
-                        !me.can_see(node.borrow().state.me().unwrap())
-                    {
+                    // TODO: Move away from me.
+                    let node_me: Player = match node.borrow().state.my_blobs.values().next() {
+                        Some(node_me) => node_me.clone(),
+                        None => break,
+                    };
+                    if !me.can_see(&node_me) {
                         break;
                     }
                     let commands: Vec<_> = (0..self.skips)
-                        .map(|_i| {
-                            Command::from_point(node.borrow().state.me().unwrap().point() + v)
-                        })
+                        .map(|_i| Command::from_point(node_me.point() + v))
                         .collect();
                     let state = self.predict_states(&node.borrow().state, commands.as_ref());
                     let mut child = Node::new(state);
@@ -238,172 +217,28 @@ impl MyStrategy {
         state
     }
 
-    fn predict_state(&self, state: &State, command: &Command, slow: bool) -> State {
-        let mut my_blobs: Vec<Player> = state.my_blobs.values().cloned().collect();
-
-        // Following the oringial mechanic.
-        // apply_strategies: update v.
-        for me in my_blobs.iter_mut() {
-            me.update_v(command);
-        }
-
-        // shrink_players.
-        let tick = state.tick + 1;
-        if tick % config().shrink_every_tick == 0 {
-            for me in my_blobs.iter_mut() {
-                me.shrink();
-            }
-        }
-
-        // who_is_eaten: update m.
-        let (eaten_food, eaten_ejections, eaten_enemies) = if slow {
-            fn eat<B: Blob>(
-                blobs: &Vec<B>,
-                eaten: &Rc<HashSet<B::Id>>,
-                my_blobs: &mut [Player],
-            ) -> HashSet<B::Id> {
-                let mut eaten = eaten.as_ref().clone();
-                for blob in blobs.iter() {
-                    if eaten.contains(blob.id()) {
-                        continue;
-                    }
-                    if let Some(i) = find_nearest_me(blob, |me| me.can_eat(blob), my_blobs) {
-                        eaten.insert(blob.id().clone());
-                        my_blobs[i].m_ += blob.m();
-                    }
-                }
-                eaten
-            }
-
-            let eaten_food = eat(&self.food, &state.eaten_food, my_blobs.as_mut());
-            let eaten_ejections = eat(&self.ejections, &state.eaten_ejections, my_blobs.as_mut());
-            let eaten_enemies = eat(&self.enemies, &state.eaten_enemies, my_blobs.as_mut());
-
-            for enemy in self.enemies.iter() {
-                if eaten_enemies.contains(enemy.id()) {
-                    continue;
-                }
-                if let Some(i) = find_nearest_me(enemy, |me| enemy.can_eat(me), my_blobs.as_ref()) {
-                    my_blobs.swap_remove(i); // Die.
-                }
-            }
-
-            (
-                Rc::new(eaten_food),
-                Rc::new(eaten_ejections),
-                Rc::new(eaten_enemies),
-            )
-        } else {
-            (
-                Rc::clone(&state.eaten_food),
-                Rc::clone(&state.eaten_ejections),
-                Rc::clone(&state.eaten_enemies),
-            )
-        };
-
-        // TODO: who_need_fusion.
-
-        // who_intersected_virus.
-        if slow {
-            for virus in self.viruses.iter() {
-                if let Some(i) = find_nearest_me(virus, |me| me.can_burst(), my_blobs.as_ref()) {
-                    let me = my_blobs.swap_remove(i);
-                    my_blobs.extend(self.burst(me, virus));
-                }
-            }
-        }
-
-        // update_by_state: update r, limit v, split.
-        for me in my_blobs.iter_mut() {
-            me.update_r();
-            me.limit_speed();
-        }
-        if command.split() {
-            let mut max_fragment_id = my_blobs.iter().map(|me| me.id().fragment_id).max().expect(
-                "max_fragment_id",
-            );
-            my_blobs = my_blobs
-                .into_iter()
-                .flat_map(|me| self.split(me, &mut max_fragment_id))
-                .collect();
-        }
-
-        // move_moveables: collide (TODO), move, apply viscosity, update ttf.
-        for me in my_blobs.iter_mut() {
-            me.apply_v();
-            me.apply_viscosity();
-            if let Some(ttf) = me.ttf_ {
-                if ttf > 0 {
-                    me.ttf_ = Some(ttf - 1);
-                }
-            }
-        }
-
-        State {
-            tick,
-            my_blobs: my_blobs_to_map(my_blobs),
-            eaten_food,
-            eaten_ejections,
-            eaten_viruses: Rc::clone(&state.eaten_viruses),
-            eaten_enemies,
-        }
-    }
-
-    fn split(&self, me: Player, max_fragment_id: &mut u32) -> Vec<Player> {
-        if !me.can_split() {
-            return vec![me];
-        }
-        let m = me.m() / 2.0;
-        let v = Point::from_polar(config().split_start_speed, me.angle());
-
-        let mut me1 = Player {
-            id_: PlayerBlobId {
-                player_id: me.id().player_id,
-                fragment_id: *max_fragment_id + 1,
-            },
-            point_: me.point(),
-            m_: m,
-            r_: 0.0,
-            v_: Some(v),
-            is_fast_: Some(true),
-            ttf_: Some(config().ticks_til_fusion),
-        };
-        me1.update_r();
-
-        let mut me2 = me;
-        me2.id_.fragment_id = *max_fragment_id + 2;
-        me2.m_ = m;
-        me2.update_r();
-        me2.ttf_ = Some(config().ticks_til_fusion);
-
-        *max_fragment_id += 2;
-        vec![me1, me2]
-    }
-
-    fn burst(&self, me: Player, virus: &Virus) -> Vec<Player> {
-        // TODO
-        if virus.can_hurt(&me) {
-            vec![] // Assume we die.
-        } else {
-            vec![me]
-        }
+    fn predict_state(&self, state: &State, command: &Command, _slow: bool) -> State {
+        let mut mechanic = Mechanic::new(state);
+        mechanic.tick(command);
+        mechanic.state
     }
 
     #[cfg(feature = "debug")]
     fn debug_reset_root(&self, command: &mut Command) {
-        let ref root = self.root.borrow().state;
+        let ref root = self.root.borrow();
         command.set_pause();
         command.add_debug_message(format!("RESET"));
-        if self.my_blobs.len() != root.my_blobs.len() {
+        if self.state.my_blobs.len() != root.state.my_blobs.len() {
             command.add_debug_message(format!(
                 "len: {} vs {}",
-                self.my_blobs.len(),
-                root.my_blobs.len()
+                self.state.my_blobs.len(),
+                root.state.my_blobs.len()
             ));
         }
-        self.my_blobs
+        self.state
+            .my_blobs
             .values()
-            .zip(root.my_blobs.values())
+            .zip(root.state.my_blobs.values())
             .for_each(|(a, b)| {
                 if a.id() != b.id() {
                     command.add_debug_message(format!("id: {:?} vs {:?}", a.id(), b.id()));
@@ -520,10 +355,6 @@ impl MyStrategy {
             command.add_debug_message(format!("PAUSE"));
         }
     }
-}
-
-fn my_blobs_to_map(my_blobs: Vec<Player>) -> BTreeMap<PlayerBlobId, Player> {
-    BTreeMap::from_iter(my_blobs.into_iter().map(|me| (me.id().clone(), me)))
 }
 
 fn find_nodes(root: &SharedNode) -> Vec<SharedNode> {

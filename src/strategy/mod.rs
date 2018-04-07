@@ -4,6 +4,7 @@ pub use self::timing_wrapper::TimingWrapper;
 pub use command::*;
 pub use models::*;
 
+mod mechanic;
 mod my_strategy;
 #[cfg(feature = "debug")]
 mod timing_wrapper;
