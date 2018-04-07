@@ -143,7 +143,9 @@ impl Strategy for MyStrategy {
         }
 
         command.set_point(self.commands.pop_front().expect("no commands left").point());
-        command.set_split();
+        if tick % 300 == 0 {
+            command.set_split();
+        }
 
         #[cfg(feature = "debug")] self.debug(&mut command);
 
@@ -368,22 +370,4 @@ fn find_nodes(root: &SharedNode) -> Vec<SharedNode> {
     let mut nodes = vec![];
     go(root, &mut nodes);
     nodes
-}
-
-fn find_nearest_me<T, P>(target: &T, predicate: P, my_blobs: &[Player]) -> Option<usize>
-where
-    T: HasPoint,
-    P: Fn(&Player) -> bool,
-{
-    my_blobs
-        .iter()
-        .enumerate()
-        .filter(|&(_, me)| predicate(me))
-        .min_by(|&(_, a), &(_, b)| {
-            a.point()
-                .qdist(target.point())
-                .partial_cmp(&b.point().qdist(target.point()))
-                .expect("incomparable distances")
-        })
-        .map(|(i, _)| i)
 }

@@ -94,7 +94,9 @@ impl Mechanic {
         for i in 0..self.my_blobs.len() {
             for j in (i + 1)..self.my_blobs.len() {
                 let (left, right) = self.my_blobs.as_mut_slice().split_at_mut(j);
-                collision_calc(&mut left[i], &mut right[0]);
+                let ref mut me = left[i];
+                let ref mut other = right[0];
+                collision_calc(me, other);
             }
         }
 
@@ -144,7 +146,50 @@ impl Mechanic {
         }
     }
 
-    fn fuse_players(&mut self) {}
+    fn fuse_players(&mut self) {
+        const FUSED: u32 = <u32>::max_value();
+        self.my_blobs.sort_by(|a, b| {
+            a.m()
+                .partial_cmp(&b.m())
+                .expect("incomparable mass")
+                .reverse()
+                .then_with(|| a.id().fragment_id.cmp(&b.id().fragment_id))
+        });
+        let mut fused_count = 0;
+        loop {
+            let mut idle = true;
+            for i in 0..self.my_blobs.len() {
+                let mut fused = false;
+                for j in (i + 1)..self.my_blobs.len() {
+                    let (left, right) = self.my_blobs.as_mut_slice().split_at_mut(j);
+                    let ref mut me = left[i];
+                    let ref mut other = right[0];
+                    if me.id().player_id != FUSED && other.id().player_id != FUSED &&
+                        me.can_fuse(other)
+                    {
+                        fusion(me, other);
+                        other.id_.player_id = FUSED;
+                        fused_count += 1;
+                        fused = true;
+                    }
+                }
+                if fused {
+                    idle = false;
+                    update_by_mass(&mut self.my_blobs[i]);
+                }
+            }
+            if idle {
+                break;
+            }
+        }
+        if self.my_blobs.len() == 1 {
+            self.my_blobs[0].id_.fragment_id = 0;
+        }
+        if fused_count != 0 {
+            self.my_blobs.retain(|me| me.id().player_id != FUSED);
+        }
+    }
+
     fn burst_on_viruses(&mut self) {}
 
     fn update_players_radius(&mut self) {
@@ -153,13 +198,13 @@ impl Mechanic {
         }
     }
 
-    fn update_scores(&mut self) {}
+    fn update_scores(&mut self) {
+        // Not relevant.
+    }
 
-    fn split_viruses(&mut self) {}
-
-    //pub fn pastebin() {
-
-    //    // TODO: who_need_fusion.
+    fn split_viruses(&mut self) {
+        // TODO: Implement this if ejections are implemented.
+    }
 
     //    // who_intersected_virus.
     //    if slow {
@@ -170,22 +215,6 @@ impl Mechanic {
     //            }
     //        }
     //    }
-
-    //    // update_by_state: update r, limit v, split.
-    //    for me in my_blobs.iter_mut() {
-    //        me.update_r();
-    //        me.limit_speed();
-    //    }
-    //    if command.split() {
-    //        let mut max_fragment_id = my_blobs.iter().map(|me| me.id().fragment_id).max().expect(
-    //            "max_fragment_id",
-    //        );
-    //        my_blobs = my_blobs
-    //            .into_iter()
-    //            .flat_map(|me| self.split(me, &mut max_fragment_id))
-    //            .collect();
-    //    }
-    //}
 
     //fn burst(&self, me: Player, virus: &Virus) -> Vec<Player> {
     //    // TODO
@@ -374,7 +403,6 @@ fn update_by_mass(me: &mut Player) {
         me.set_v(v);
     }
 
-
     let x = me.point().x.max(me.r()).min(
         config().game_width as f64 - me.r(),
     );
@@ -382,6 +410,21 @@ fn update_by_mass(me: &mut Player) {
         config().game_height as f64 - me.r(),
     );
     me.set_point(Point::new(x, y));
+}
+
+fn fusion(me: &mut Player, other: &Player) {
+    let sum_m = me.m() + other.m();
+    let my_influence = me.m() / sum_m;
+    let other_influence = other.m() / sum_m;
+
+    let point = me.point() * my_influence + other.point() * other_influence;
+    me.set_point(point);
+
+    let v = me.v() * my_influence + other.v() * other_influence;
+    me.set_v(v);
+
+    let m = me.m() + other.m();
+    me.set_m(m);
 }
 
 fn mass_to_radius(mass: f64) -> f64 {

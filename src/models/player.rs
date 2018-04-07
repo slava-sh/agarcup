@@ -58,6 +58,11 @@ impl Player {
         other.point().qdist(p) < max_dist.powi(2)
     }
 
+    pub fn can_fuse(&self, other: &Player) -> bool {
+        self.ttf_ == 0 && other.ttf_ == 0 &&
+            self.point().qdist(other.point()) <= (self.r() + other.r()).powi(2)
+    }
+
     pub fn can_burst(&self) -> bool {
         if self.m() < config().min_burst_mass * 2.0 {
             return false;
@@ -122,8 +127,4 @@ impl Player {
 
 fn rest_fragment_count(existing_fragment_count: i64) -> i64 {
     config().max_frags_cnt - existing_fragment_count
-}
-
-fn mass_to_radius(mass: f64) -> f64 {
-    config().radius_factor * mass.sqrt()
 }
