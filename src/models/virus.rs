@@ -2,10 +2,12 @@ use models::*;
 
 #[derive(Debug)]
 pub struct Virus {
-    pub id_: BlobId,
+    pub id_: VirusId,
     pub point_: Point,
     pub m_: f64,
 }
+
+pub type VirusId = String;
 
 impl HasPoint for Virus {
     fn point(&self) -> Point {
@@ -20,7 +22,9 @@ impl Circle for Virus {
 }
 
 impl Blob for Virus {
-    fn id(&self) -> &BlobId {
+    type Id = VirusId;
+
+    fn id(&self) -> &VirusId {
         &self.id_
     }
 

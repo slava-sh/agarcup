@@ -53,7 +53,10 @@ type SharedNode = Rc<RefCell<Node>>;
 struct State {
     tick: i64,
     my_blobs: Vec<Player>,
-    eaten: Rc<HashSet<BlobId>>,
+    eaten_food: Rc<HashSet<FoodId>>,
+    eaten_ejections: Rc<HashSet<EjectionId>>,
+    eaten_viruses: Rc<HashSet<VirusId>>,
+    eaten_enemies: Rc<HashSet<PlayerBlobId>>,
 }
 
 impl State {
@@ -128,7 +131,10 @@ impl Strategy for MyStrategy {
             self.root = Rc::new(RefCell::new(Node::new(State {
                 tick,
                 my_blobs: self.my_blobs.to_vec(),
-                eaten: Rc::new(HashSet::new()),
+                eaten_food: Default::default(),
+                eaten_ejections: Default::default(),
+                eaten_viruses: Default::default(),
+                eaten_enemies: Default::default(),
             })));
             self.add_nodes(&self.root);
         }
@@ -246,39 +252,49 @@ impl MyStrategy {
         }
 
         // who_is_eaten: update m.
-        let eaten = if slow {
-            fn maybe_eat<B: Blob>(blob: &B, my_blobs: &mut [Player], eaten: &mut HashSet<BlobId>) {
-                if eaten.contains(blob.id()) {
-                    return;
+        let (eaten_food, eaten_ejections, eaten_enemies) = if slow {
+            fn eat<B: Blob>(
+                blobs: &Vec<B>,
+                eaten: &Rc<HashSet<B::Id>>,
+                my_blobs: &mut [Player],
+            ) -> HashSet<B::Id> {
+                let mut eaten = eaten.as_ref().clone();
+                for blob in blobs.iter() {
+                    if eaten.contains(blob.id()) {
+                        continue;
+                    }
+                    if let Some(i) = find_nearest_me(blob, |me| me.can_eat(blob), my_blobs) {
+                        eaten.insert(blob.id().clone());
+                        my_blobs[i].m_ += blob.m();
+                    }
                 }
-                if let Some(i) = find_nearest_me(blob, |me| me.can_eat(blob), my_blobs) {
-                    eaten.insert(blob.id().to_string());
-                    my_blobs[i].m_ += blob.m();
-                }
+                eaten
             }
 
-            let mut eaten = state.eaten.as_ref().clone();
-            for blob in self.food.iter() {
-                maybe_eat(blob, my_blobs.as_mut(), &mut eaten);
-            }
-            for blob in self.ejections.iter() {
-                maybe_eat(blob, my_blobs.as_mut(), &mut eaten);
-            }
-            for blob in self.enemies.iter() {
-                maybe_eat(blob, my_blobs.as_mut(), &mut eaten);
-            }
+            let eaten_food = eat(&self.food, &state.eaten_food, &mut my_blobs);
+            let eaten_ejections = eat(&self.ejections, &state.eaten_ejections, &mut my_blobs);
+            let eaten_enemies = eat(&self.enemies, &state.eaten_enemies, &mut my_blobs);
 
             for enemy in self.enemies.iter() {
-                if eaten.contains(enemy.id()) {
+                if eaten_enemies.contains(enemy.id()) {
                     continue;
                 }
                 if let Some(i) = find_nearest_me(enemy, |me| enemy.can_eat(me), my_blobs.as_ref()) {
                     my_blobs.swap_remove(i); // Die.
                 }
             }
-            Rc::new(eaten)
+
+            (
+                Rc::new(eaten_food),
+                Rc::new(eaten_ejections),
+                Rc::new(eaten_enemies),
+            )
         } else {
-            Rc::clone(&state.eaten)
+            (
+                Rc::clone(&state.eaten_food),
+                Rc::clone(&state.eaten_ejections),
+                Rc::clone(&state.eaten_enemies),
+            )
         };
 
         // TODO: who_need_fusion.
@@ -317,7 +333,10 @@ impl MyStrategy {
         State {
             tick,
             my_blobs,
-            eaten,
+            eaten_food,
+            eaten_ejections,
+            eaten_viruses: Rc::clone(&state.eaten_viruses),
+            eaten_enemies,
         }
     }
 
@@ -444,37 +463,24 @@ impl MyStrategy {
             node = parent;
         }
 
-        fn as_blob<B: Blob>(b: &B) -> &Blob {
-            b as &Blob
-        }
-        use std::iter;
-        for blob in iter::empty()
-            .chain(self.food.iter().map(as_blob))
-            .chain(self.ejections.iter().map(as_blob))
-            .chain(self.viruses.iter().map(as_blob))
-            .chain(self.enemies.iter().map(as_blob))
-        {
-            if self.target.borrow().state.eaten.contains(blob.id()) {
-                command.add_debug_circle(DebugCircle {
-                    center: blob.point(),
-                    radius: blob.r() + 2.0,
-                    color: String::from("green"),
-                    opacity: 0.5,
-                });
+        fn mark_eaten<B: Blob>(blobs: &Vec<B>, eaten: &Rc<HashSet<B::Id>>, command: &mut Command) {
+            for blob in blobs.iter() {
+                if eaten.contains(blob.id()) {
+                    command.add_debug_circle(DebugCircle {
+                        center: blob.point(),
+                        radius: blob.r() + 2.0,
+                        color: String::from("green"),
+                        opacity: 0.5,
+                    });
+                }
             }
         }
 
-        for blob in iter::empty()
-            .chain(self.viruses.iter().map(as_blob))
-            .chain(self.enemies.iter().map(as_blob))
-        {
-            command.add_debug_circle(DebugCircle {
-                center: blob.point(),
-                radius: blob.r() + 2.0,
-                color: String::from("red"),
-                opacity: 0.1,
-            });
-        }
+        let target_state = &self.target.borrow().state;
+        mark_eaten(&self.food, &target_state.eaten_food, command);
+        mark_eaten(&self.ejections, &target_state.eaten_ejections, command);
+        mark_eaten(&self.viruses, &target_state.eaten_viruses, command);
+        mark_eaten(&self.enemies, &target_state.eaten_enemies, command);
 
         command.add_debug_message(format!("skips: {}", self.skips));
         command.add_debug_message(format!("queue: {}", self.commands.len()));

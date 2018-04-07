@@ -3,7 +3,7 @@ use command::Command;
 
 #[derive(Debug, Clone)]
 pub struct Player {
-    pub id_: BlobId,
+    pub id_: PlayerBlobId,
     pub point_: Point,
     pub m_: f64,
     pub r_: f64,
@@ -11,6 +11,8 @@ pub struct Player {
     pub is_fast_: Option<bool>,
     pub ttf_: Option<i64>,
 }
+
+pub type PlayerBlobId = String;
 
 impl HasPoint for Player {
     fn point(&self) -> Point {
@@ -25,7 +27,9 @@ impl Circle for Player {
 }
 
 impl Blob for Player {
-    fn id(&self) -> &BlobId {
+    type Id = PlayerBlobId;
+
+    fn id(&self) -> &PlayerBlobId {
         &self.id_
     }
 

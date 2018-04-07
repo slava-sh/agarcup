@@ -2,9 +2,11 @@ use models::*;
 
 #[derive(Debug)]
 pub struct Ejection {
-    pub id_: BlobId,
+    pub id_: EjectionId,
     pub point_: Point,
 }
+
+pub type EjectionId = String;
 
 impl HasPoint for Ejection {
     fn point(&self) -> Point {
@@ -19,7 +21,9 @@ impl Circle for Ejection {
 }
 
 impl Blob for Ejection {
-    fn id(&self) -> &BlobId {
+    type Id = EjectionId;
+
+    fn id(&self) -> &EjectionId {
         &self.id_
     }
 

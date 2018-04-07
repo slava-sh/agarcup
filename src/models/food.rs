@@ -2,9 +2,11 @@ use models::*;
 
 #[derive(Debug)]
 pub struct Food {
-    pub id_: BlobId,
+    pub id_: FoodId,
     pub point_: Point,
 }
+
+pub type FoodId = String;
 
 impl HasPoint for Food {
     fn point(&self) -> Point {
@@ -19,7 +21,9 @@ impl Circle for Food {
 }
 
 impl Blob for Food {
-    fn id(&self) -> &BlobId {
+    type Id = FoodId;
+
+    fn id(&self) -> &FoodId {
         &self.id_
     }
 
