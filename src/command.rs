@@ -5,6 +5,7 @@ use config::config;
 pub struct Command {
     point_: Point,
     split_: bool,
+    #[cfg(feature = "debug")]
     pause_: bool,
     debug_messages_: Vec<String>,
     #[cfg(feature = "debug")]
@@ -45,11 +46,12 @@ impl Command {
         self.split_ = true;
     }
 
+    #[cfg(feature = "debug")]
     pub fn pause(&self) -> bool {
         self.pause_
     }
 
-    #[allow(dead_code)]
+    #[cfg(feature = "debug")]
     pub fn set_pause(&mut self) {
         self.pause_ = true;
     }
