@@ -8,6 +8,7 @@ use strategy::mechanic::{Mechanic, State};
 use config::config;
 
 const ROOT_EPS: f64 = 1.0;
+const MASS_EPS: f64 = 0.5;
 const MAX_POWER_BLOBS: i64 = 1;
 const MAX_DEPTH: i64 = 15;
 const MIN_SKIPS: i64 = 5;
@@ -112,7 +113,7 @@ impl Strategy for MyStrategy {
                     .values()
                     .zip(self.root.borrow().state.my_blobs.values())
                     .any(|(a, b)| {
-                        a.id() != b.id() || a.m() != b.m() ||
+                        a.id() != b.id() || (a.m() - b.m()).abs() > MASS_EPS ||
                             a.point().qdist(b.point()) > ROOT_EPS.powi(2)
                     })
             {
@@ -143,8 +144,8 @@ impl Strategy for MyStrategy {
         }
 
         command.set_point(self.commands.pop_front().expect("no commands left").point());
-        if tick % 300 == 0 {
-            command.set_split();
+        if tick % 500 > 300 && self.state.my_blobs.values().next().unwrap().can_burst(1) {
+            command.set_point(self.viruses[0].point());
         }
 
         #[cfg(feature = "debug")] self.debug(&mut command);
@@ -221,7 +222,13 @@ impl MyStrategy {
 
     fn predict_state(&self, state: &State, command: &Command, _slow: bool) -> State {
         let mut mechanic = Mechanic::new(state);
-        mechanic.tick(command, &self.food, &self.ejections, &self.enemies);
+        mechanic.tick(
+            command,
+            &self.food,
+            &self.ejections,
+            &self.viruses,
+            &self.enemies,
+        );
         mechanic.state
     }
 
@@ -245,7 +252,7 @@ impl MyStrategy {
                 if a.id() != b.id() {
                     command.add_debug_message(format!("id: {:?} vs {:?}", a.id(), b.id()));
                 }
-                if a.m() != b.m() {
+                if (a.m() - b.m()).abs() > MASS_EPS {
                     command.add_debug_message(format!("m: {} vs {}", a.m(), b.m()));
                 }
                 command.add_debug_message(format!("dist: {:.2}", a.point().dist(b.point())));

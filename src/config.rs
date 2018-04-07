@@ -1,3 +1,4 @@
+use std::f64::consts::PI;
 use std::sync::{Mutex, MutexGuard};
 
 use serde_json;
@@ -72,6 +73,9 @@ impl_into!(i64, as_i64);
 impl_into!(f64, as_f64);
 
 impl_config! {
+    burst_angle_spectrum: f64 = PI,
+    burst_bonus: f64 = 5.0,
+    burst_start_speed: f64 = 8.0,
     collision_power: f64 = 20.0,
     diam_eat_factor: f64 = 2.0 / 3.0,
     ejection_mass: f64 = 15.0,

@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
+use std::f64::consts::PI;
 use std::iter::FromIterator;
 use std::mem;
 use std::rc::Rc;
@@ -55,10 +56,12 @@ impl Mechanic {
         command: &Command,
         food: &[Food],
         ejections: &[Ejection],
+        viruses: &[Virus],
         enemies: &[Player],
     ) {
         self.my_blobs = self.state.my_blobs.values().cloned().collect();
 
+        // Following the vendor mechanic.h.
         self.apply_strategies(command);
         self.state.tick += 1;
         self.move_moveables();
@@ -70,7 +73,7 @@ impl Mechanic {
         }
         self.eat_all(food, ejections, enemies);
         self.fuse_players();
-        self.burst_on_viruses();
+        self.burst_on_viruses(viruses);
 
         self.update_players_radius();
         self.update_scores();
@@ -190,7 +193,32 @@ impl Mechanic {
         }
     }
 
-    fn burst_on_viruses(&mut self) {}
+    fn burst_on_viruses(&mut self, viruses: &[Virus]) {
+        let mut fragment_count = self.my_blobs.len() as i64;
+        let mut max_fragment_id = self.my_blobs
+            .iter()
+            .map(|me| me.id().fragment_id)
+            .max()
+            .unwrap_or(0);
+        for virus in viruses.iter() {
+            if let Some(i) = nearest_me(
+                virus,
+                |me| me.can_burst(fragment_count) && virus.can_hurt(me),
+                &self.my_blobs,
+            )
+            {
+                let new_blobs = {
+                    let ref mut me = self.my_blobs[i];
+                    // TODO: targets.removeAll(player);
+                    burst_on(me, virus);
+                    burst_now(me, fragment_count, &mut max_fragment_id)
+                };
+                fragment_count += new_blobs.len() as i64;
+                self.my_blobs.extend(new_blobs);
+                self.state.eaten_viruses.insert(virus.id().clone());
+            }
+        }
+    }
 
     fn update_players_radius(&mut self) {
         for me in self.my_blobs.iter_mut() {
@@ -205,25 +233,6 @@ impl Mechanic {
     fn split_viruses(&mut self) {
         // TODO: Implement this if ejections are implemented.
     }
-
-    //    // who_intersected_virus.
-    //    if slow {
-    //        for virus in self.viruses.iter() {
-    //            if let Some(i) = find_nearest_me(virus, |me| me.can_burst(), my_blobs.as_ref()) {
-    //                let me = my_blobs.swap_remove(i);
-    //                my_blobs.extend(self.burst(me, virus));
-    //            }
-    //        }
-    //    }
-
-    //fn burst(&self, me: Player, virus: &Virus) -> Vec<Player> {
-    //    // TODO
-    //    if virus.can_hurt(&me) {
-    //        vec![] // Assume we die.
-    //    } else {
-    //        vec![me]
-    //    }
-    //}
 }
 
 fn apply_direct(me: &mut Player, command: &Command) {
@@ -317,9 +326,11 @@ fn split_fragments(my_blobs: &mut Vec<Player>) {
     });
     let mut new_blobs = vec![];
     let mut fragment_count = my_blobs.len() as i64;
-    let mut max_fragment_id = my_blobs.iter().map(|me| me.id().fragment_id).max().expect(
-        "no blobs to split",
-    );
+    let mut max_fragment_id = my_blobs
+        .iter()
+        .map(|me| me.id().fragment_id)
+        .max()
+        .unwrap_or(0);
     for me in my_blobs.iter_mut() {
         if me.can_split(fragment_count) {
             new_blobs.push(split_now(me, &mut max_fragment_id));
@@ -351,7 +362,7 @@ fn split_now(me: &mut Player, max_fragment_id: &mut u32) -> Player {
     me.m_ = new_m;
     me.r_ = new_r;
 
-    *max_fragment_id += 2;
+    *max_fragment_id = me.id().fragment_id;
     new_blob
 }
 
@@ -425,6 +436,66 @@ fn fusion(me: &mut Player, other: &Player) {
 
     let m = me.m() + other.m();
     me.set_m(m);
+}
+
+fn burst_on(me: &mut Player, virus: &Virus) {
+    let mut angle = 0.0;
+    let dist = me.point().dist(virus.point());
+    if dist > 0.0 {
+        angle = ((me.point().y - virus.point().y) / dist).asin();
+        if me.point().x < virus.point().x {
+            angle = PI - angle;
+        }
+    }
+
+    let speed = me.speed().min(me.max_speed());
+    let v = Point::from_polar(speed, angle);
+    me.set_v(v);
+
+    let m = me.m() + config().burst_bonus;
+    me.set_m(m);
+}
+
+fn burst_now(me: &mut Player, fragment_count: i64, max_fragment_id: &mut u32) -> Vec<Player> {
+    let new_fragment_count = ((me.m() / config().min_burst_mass).floor() as i64 - 1)
+        .min(Player::rest_fragment_count(fragment_count));
+
+    let new_m = me.m() / (new_fragment_count + 1) as f64;
+    let new_r = mass_to_radius(new_m);
+
+    let new_blobs = (0..new_fragment_count)
+        .map(|i| {
+            let angle = me.angle() - config().burst_angle_spectrum / 2.0 +
+                i as f64 * config().burst_angle_spectrum / new_fragment_count as f64;
+            Player {
+                id_: PlayerBlobId {
+                    player_id: me.id().player_id,
+                    fragment_id: *max_fragment_id + 1 + i as u32,
+                },
+                point_: me.point(),
+                m_: new_m,
+                r_: new_r,
+                v_: Some(Point::from_polar(config().burst_start_speed, angle)),
+                is_fast_: Some(true),
+                ttf_: config().ticks_til_fusion,
+            }
+        })
+        .collect();
+
+    let v = Point::from_polar(
+        config().burst_start_speed,
+        me.angle() + config().burst_angle_spectrum / 2.0,
+    );
+    me.set_v(v);
+    me.set_fast(true);
+
+    me.id_.fragment_id = *max_fragment_id + 1 + new_fragment_count as u32;
+    me.ttf_ = config().ticks_til_fusion;
+    me.set_m(new_m);
+    me.set_r(new_r);
+
+    *max_fragment_id = me.id().fragment_id;
+    new_blobs
 }
 
 fn mass_to_radius(mass: f64) -> f64 {

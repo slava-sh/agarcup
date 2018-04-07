@@ -63,11 +63,10 @@ impl Player {
             self.point().qdist(other.point()) <= (self.r() + other.r()).powi(2)
     }
 
-    pub fn can_burst(&self) -> bool {
-        if self.m() < config().min_burst_mass * 2.0 {
+    pub fn can_burst(&self, yet_cnt: i64) -> bool {
+        if self.m() < config().min_burst_mass * 2.0 || Player::rest_fragment_count(yet_cnt) <= 0 {
             return false;
         }
-        // TODO: Consider config().max_frags_cnt.
         let frags_cnt = (self.m() / config().min_burst_mass).floor() as i64;
         frags_cnt > 1
     }
@@ -77,7 +76,7 @@ impl Player {
     }
 
     pub fn can_split(&self, yet_cnt: i64) -> bool {
-        rest_fragment_count(yet_cnt) > 0 && self.m() > config().min_split_mass
+        Player::rest_fragment_count(yet_cnt) > 0 && self.m() > config().min_split_mass
     }
 
     pub fn max_speed(&self) -> f64 {
@@ -123,8 +122,8 @@ impl Player {
     pub fn set_r(&mut self, r: f64) {
         self.r_ = r;
     }
-}
 
-fn rest_fragment_count(existing_fragment_count: i64) -> i64 {
-    config().max_frags_cnt - existing_fragment_count
+    pub fn rest_fragment_count(existing_fragment_count: i64) -> i64 {
+        config().max_frags_cnt - existing_fragment_count
+    }
 }

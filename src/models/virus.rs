@@ -35,7 +35,7 @@ impl Blob for Virus {
 
 impl Virus {
     pub fn can_hurt(&self, other: &Player) -> bool {
-        if other.r() < self.r() || !other.can_burst() {
+        if other.r() < self.r() {
             return false;
         }
         let max_dist = self.r() * config().rad_hurt_factor + other.r();
