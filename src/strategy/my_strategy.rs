@@ -165,6 +165,7 @@ impl Strategy for MyStrategy {
         }
 
         command.set_point(self.commands.pop_front().expect("no commands left").point());
+        command.set_split();
 
         #[cfg(feature = "debug")] self.debug(&mut command);
 
@@ -274,13 +275,9 @@ impl MyStrategy {
                 eaten
             }
 
-            let eaten_food = eat(&self.food, &state.eaten_food, my_blobs.as_mut_slice());
-            let eaten_ejections = eat(
-                &self.ejections,
-                &state.eaten_ejections,
-                my_blobs.as_mut_slice(),
-            );
-            let eaten_enemies = eat(&self.enemies, &state.eaten_enemies, my_blobs.as_mut_slice());
+            let eaten_food = eat(&self.food, &state.eaten_food, my_blobs.as_mut());
+            let eaten_ejections = eat(&self.ejections, &state.eaten_ejections, my_blobs.as_mut());
+            let eaten_enemies = eat(&self.enemies, &state.eaten_enemies, my_blobs.as_mut());
 
             for enemy in self.enemies.iter() {
                 if eaten_enemies.contains(enemy.id()) {
@@ -394,12 +391,28 @@ impl MyStrategy {
 
     #[cfg(feature = "debug")]
     fn debug_reset_root(&self, command: &mut Command) {
-        if let Some(ref root_me) = self.root.borrow().state.me() {
-            let me = self.my_blobs.values().next().unwrap(); // TODO
-            command.set_pause();
-            command.add_debug_message(format!("RESET"));
-            command.add_debug_message(format!("dist = {:.2}", root_me.point().dist(me.point())));
+        let ref root = self.root.borrow().state;
+        command.set_pause();
+        command.add_debug_message(format!("RESET"));
+        if self.my_blobs.len() != root.my_blobs.len() {
+            command.add_debug_message(format!(
+                "len: {} vs {}",
+                self.my_blobs.len(),
+                root.my_blobs.len()
+            ));
         }
+        self.my_blobs
+            .values()
+            .zip(root.my_blobs.values())
+            .for_each(|(a, b)| {
+                if a.id() != b.id() {
+                    command.add_debug_message(format!("id: {:?} vs {:?}", a.id(), b.id()));
+                }
+                if a.m() != b.m() {
+                    command.add_debug_message(format!("m: {} vs {}", a.m(), b.m()));
+                }
+                command.add_debug_message(format!("dist: {:.2}", a.point().dist(b.point())));
+            });
     }
 
     #[cfg(feature = "debug")]
