@@ -17,10 +17,10 @@ pub struct Mechanic {
 pub struct State {
     pub tick: i64,
     pub my_blobs: Rc<BTreeMap<PlayerBlobId, Player>>,
-    pub eaten_food: Rc<HashSet<FoodId>>,
-    pub eaten_ejections: Rc<HashSet<EjectionId>>,
-    pub eaten_viruses: Rc<HashSet<VirusId>>,
-    pub eaten_enemies: Rc<HashSet<PlayerBlobId>>,
+    pub eaten_food: HashSet<FoodId>,
+    pub eaten_ejections: HashSet<EjectionId>,
+    pub eaten_viruses: HashSet<VirusId>,
+    pub eaten_enemies: HashSet<PlayerBlobId>,
 }
 
 impl State {
@@ -50,19 +50,25 @@ impl Mechanic {
         }
     }
 
-    pub fn tick(&mut self, command: &Command) {
+    pub fn tick(
+        &mut self,
+        command: &Command,
+        food: &[Food],
+        ejections: &[Ejection],
+        enemies: &[Player],
+    ) {
         self.my_blobs = self.state.my_blobs.values().cloned().collect();
 
         self.apply_strategies(command);
         self.state.tick += 1;
         self.move_moveables();
         self.player_ejects();
-        self.player_splits();
+        self.player_splits(command);
 
         if self.state.tick % config().shrink_every_tick == 0 {
             self.shrink_players();
         }
-        self.eat_all();
+        self.eat_all(food, ejections, enemies);
         self.fuse_players();
         self.burst_on_viruses();
 
@@ -98,71 +104,55 @@ impl Mechanic {
         }
     }
 
-    fn player_ejects(&mut self) {}
+    fn player_ejects(&mut self) {
+        // TODO
+    }
 
-    fn player_splits(&mut self) {}
-    fn shrink_players(&mut self) {}
-    fn eat_all(&mut self) {}
+    fn player_splits(&mut self, command: &Command) {
+        if command.split() {
+            split_fragments(&mut self.my_blobs);
+        }
+    }
+
+    fn shrink_players(&mut self) {
+        for me in self.my_blobs.iter_mut() {
+            if me.can_shrink() {
+                shrink_now(me);
+            }
+        }
+    }
+
+    fn eat_all(&mut self, food: &[Food], ejections: &[Ejection], enemies: &[Player]) {
+        eat(food, &mut self.state.eaten_food, &mut self.my_blobs);
+        eat(
+            ejections,
+            &mut self.state.eaten_ejections,
+            &mut self.my_blobs,
+        );
+        eat(enemies, &mut self.state.eaten_enemies, &mut self.my_blobs);
+
+        // TODO: Other players eat food.
+
+        for enemy in enemies.iter() {
+            if self.state.eaten_enemies.contains(enemy.id()) {
+                continue;
+            }
+            if let Some(i) = nearest_me(enemy, |me| enemy.can_eat(me), &self.my_blobs) {
+                // TODO: Allow an enemy to eat multiple blobs.
+                self.my_blobs.swap_remove(i);
+            }
+        }
+    }
+
     fn fuse_players(&mut self) {}
     fn burst_on_viruses(&mut self) {}
     fn update_players_radius(&mut self) {}
+
     fn update_scores(&mut self) {}
+
     fn split_viruses(&mut self) {}
 
     //pub fn pastebin() {
-    //    // shrink_players.
-    //    let tick = state.tick + 1;
-    //    if tick % config().shrink_every_tick == 0 {
-    //        for me in my_blobs.iter_mut() {
-    //            me.shrink();
-    //        }
-    //    }
-
-    //    // who_is_eaten: update m.
-    //    let (eaten_food, eaten_ejections, eaten_enemies) = if slow {
-    //        fn eat<B: Blob>(
-    //            blobs: &Vec<B>,
-    //            eaten: &Rc<HashSet<B::Id>>,
-    //            my_blobs: &mut [Player],
-    //        ) -> HashSet<B::Id> {
-    //            let mut eaten = eaten.as_ref().clone();
-    //            for blob in blobs.iter() {
-    //                if eaten.contains(blob.id()) {
-    //                    continue;
-    //                }
-    //                if let Some(i) = find_nearest_me(blob, |me| me.can_eat(blob), my_blobs) {
-    //                    eaten.insert(blob.id().clone());
-    //                    my_blobs[i].m_ += blob.m();
-    //                }
-    //            }
-    //            eaten
-    //        }
-
-    //        let eaten_food = eat(&self.food, &state.eaten_food, my_blobs.as_mut());
-    //        let eaten_ejections = eat(&self.ejections, &state.eaten_ejections, my_blobs.as_mut());
-    //        let eaten_enemies = eat(&self.enemies, &state.eaten_enemies, my_blobs.as_mut());
-
-    //        for enemy in self.enemies.iter() {
-    //            if eaten_enemies.contains(enemy.id()) {
-    //                continue;
-    //            }
-    //            if let Some(i) = find_nearest_me(enemy, |me| enemy.can_eat(me), my_blobs.as_ref()) {
-    //                my_blobs.swap_remove(i); // Die.
-    //            }
-    //        }
-
-    //        (
-    //            Rc::new(eaten_food),
-    //            Rc::new(eaten_ejections),
-    //            Rc::new(eaten_enemies),
-    //        )
-    //    } else {
-    //        (
-    //            Rc::clone(&state.eaten_food),
-    //            Rc::clone(&state.eaten_ejections),
-    //            Rc::clone(&state.eaten_enemies),
-    //        )
-    //    };
 
     //    // TODO: who_need_fusion.
 
@@ -190,37 +180,6 @@ impl Mechanic {
     //            .flat_map(|me| self.split(me, &mut max_fragment_id))
     //            .collect();
     //    }
-    //}
-
-    //fn split(&self, me: Player, max_fragment_id: &mut u32) -> Vec<Player> {
-    //    if !me.can_split() {
-    //        return vec![me];
-    //    }
-    //    let m = me.m() / 2.0;
-    //    let v = Point::from_polar(config().split_start_speed, me.angle());
-
-    //    let mut me1 = Player {
-    //        id_: PlayerBlobId {
-    //            player_id: me.id().player_id,
-    //            fragment_id: *max_fragment_id + 1,
-    //        },
-    //        point_: me.point(),
-    //        m_: m,
-    //        r_: 0.0,
-    //        v_: Some(v),
-    //        is_fast_: Some(true),
-    //        ttf_: Some(config().ticks_til_fusion),
-    //    };
-    //    me1.update_r();
-
-    //    let mut me2 = me;
-    //    me2.id_.fragment_id = *max_fragment_id + 2;
-    //    me2.m_ = m;
-    //    me2.update_r();
-    //    me2.ttf_ = Some(config().ticks_til_fusion);
-
-    //    *max_fragment_id += 2;
-    //    vec![me1, me2]
     //}
 
     //fn burst(&self, me: Player, virus: &Virus) -> Vec<Player> {
@@ -312,4 +271,95 @@ fn collision_calc(me: &mut Player, other: &mut Player) {
     me.set_v(v);
     let v = other.v() - collision_vector * (collision_force * me.m() / sum_m);
     other.set_v(v);
+}
+
+fn split_fragments(my_blobs: &mut Vec<Player>) {
+    my_blobs.sort_by(|a, b| {
+        a.m()
+            .partial_cmp(&b.m())
+            .expect("incomparable mass")
+            .reverse()
+            .then_with(|| a.id().fragment_id.cmp(&b.id().fragment_id).reverse())
+    });
+    let mut new_blobs = vec![];
+    let mut fragment_count = my_blobs.len() as i64;
+    let mut max_fragment_id = my_blobs.iter().map(|me| me.id().fragment_id).max().expect(
+        "no blobs to split",
+    );
+    for me in my_blobs.iter_mut() {
+        if me.can_split(fragment_count) {
+            new_blobs.push(split_now(me, &mut max_fragment_id));
+            fragment_count += 1;
+        }
+    }
+    my_blobs.extend(new_blobs);
+}
+
+fn split_now(me: &mut Player, max_fragment_id: &mut u32) -> Player {
+    let new_m = me.m() / 2.0;
+    let new_r = mass_to_radius(new_m);
+
+    let new_blob = Player {
+        id_: PlayerBlobId {
+            player_id: me.id().player_id,
+            fragment_id: *max_fragment_id + 1,
+        },
+        point_: me.point(),
+        m_: new_m,
+        r_: new_r,
+        v_: Some(Point::from_polar(config().split_start_speed, me.angle())),
+        is_fast_: Some(true),
+        ttf_: config().ticks_til_fusion,
+    };
+
+    me.id_.fragment_id = *max_fragment_id + 2;
+    me.ttf_ = config().ticks_til_fusion;
+    me.m_ = new_m;
+    me.r_ = new_r;
+
+    *max_fragment_id += 2;
+    new_blob
+}
+
+fn shrink_now(me: &mut Player) {
+    let new_m = me.m() - (me.m() - config().min_shrink_mass) * config().shrink_factor;
+    me.set_m(new_m);
+    me.set_r(mass_to_radius(new_m));
+}
+
+fn eat<F: Blob>(food: &[F], eaten: &mut HashSet<F::Id>, my_blobs: &mut [Player]) {
+    for blob in food.iter() {
+        if eaten.contains(blob.id()) {
+            continue;
+        }
+        if let Some(i) = nearest_me(blob, |me| me.can_eat(blob), my_blobs) {
+            eaten.insert(blob.id().clone());
+            let ref mut me = my_blobs[i];
+            let new_m = me.m() + blob.m();
+            me.set_m(new_m);
+        }
+    }
+}
+
+fn nearest_me<T, P>(target: &T, predicate: P, my_blobs: &[Player]) -> Option<usize>
+where
+    T: HasPoint,
+    P: Fn(&Player) -> bool,
+{
+    my_blobs
+        .iter()
+        .enumerate()
+        .filter(|&(_, me)| predicate(me))
+        .min_by(|&(_, a), &(_, b)| {
+            // TODO: Incorporate depth calculation.
+            a.point()
+                .qdist(target.point())
+                .partial_cmp(&b.point().qdist(target.point()))
+                .expect("incomparable distances")
+        })
+        .map(|(i, _)| i)
+}
+
+fn mass_to_radius(mass: f64) -> f64 {
+    config().radius_factor * mass.sqrt()
 }

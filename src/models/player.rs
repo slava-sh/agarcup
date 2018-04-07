@@ -71,13 +71,24 @@ impl Player {
         self.can_eat(other)
     }
 
-    pub fn can_split(&self) -> bool {
-        // TODO: Consider config().max_frags_cnt.
-        self.m() > config().min_split_mass
+    pub fn can_split(&self, yet_cnt: i64) -> bool {
+        rest_fragment_count(yet_cnt) > 0 && self.m() > config().min_split_mass
     }
 
     pub fn max_speed(&self) -> f64 {
         config().speed_factor / self.m().sqrt()
+    }
+
+    pub fn can_shrink(&self) -> bool {
+        self.m() > config().min_shrink_mass
+    }
+
+    pub fn speed(&self) -> f64 {
+        self.v().length()
+    }
+
+    pub fn angle(&self) -> f64 {
+        self.v().angle()
     }
 
     pub fn set_point(&mut self, point: Point) {
@@ -100,27 +111,19 @@ impl Player {
         self.is_fast_ = Some(is_fast);
     }
 
-    pub fn speed(&self) -> f64 {
-        self.v().length()
+    pub fn set_m(&mut self, m: f64) {
+        self.m_ = m;
     }
 
-    pub fn angle(&self) -> f64 {
-        self.v().angle()
+    pub fn set_r(&mut self, r: f64) {
+        self.r_ = r;
     }
+}
 
-    pub fn update_r(&mut self) {
-        self.r_ = config().radius_factor * self.m().sqrt();
-    }
+fn rest_fragment_count(existing_fragment_count: i64) -> i64 {
+    config().max_frags_cnt - existing_fragment_count
+}
 
-    pub fn can_shrink(&self) -> bool {
-        self.m() > config().min_shrink_mass
-    }
-
-    pub fn shrink(&mut self) {
-        if !self.can_shrink() {
-            return;
-        }
-        self.m_ -= (self.m() - config().min_shrink_mass) * config().shrink_factor;
-        self.update_r();
-    }
+fn mass_to_radius(mass: f64) -> f64 {
+    config().radius_factor * mass.sqrt()
 }

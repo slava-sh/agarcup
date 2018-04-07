@@ -219,7 +219,7 @@ impl MyStrategy {
 
     fn predict_state(&self, state: &State, command: &Command, _slow: bool) -> State {
         let mut mechanic = Mechanic::new(state);
-        mechanic.tick(command);
+        mechanic.tick(command, &self.food, &self.ejections, &self.enemies);
         mechanic.state
     }
 
@@ -326,7 +326,7 @@ impl MyStrategy {
             node = parent;
         }
 
-        fn mark_eaten<B: Blob>(blobs: &Vec<B>, eaten: &Rc<HashSet<B::Id>>, command: &mut Command) {
+        fn mark_eaten<B: Blob>(blobs: &Vec<B>, eaten: &HashSet<B::Id>, command: &mut Command) {
             for blob in blobs.iter() {
                 if eaten.contains(blob.id()) {
                     command.add_debug_circle(DebugCircle {
