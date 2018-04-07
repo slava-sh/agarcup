@@ -1,0 +1,6 @@
+#!/bin/bash -e
+
+cd "$(dirname "$0")/.."
+OUTPUT_FILE="submission.zip"
+zip "$OUTPUT_FILE" src Cargo.toml
+echo "$OUTPUT_FILE created"
