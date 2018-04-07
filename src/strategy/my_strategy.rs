@@ -44,6 +44,18 @@ struct Node {
 
 type SharedNode = Rc<RefCell<Node>>;
 
+struct State {
+    tick: i64,
+    my_blobs: Vec<Player>,
+    eaten: Rc<HashSet<BlobId>>,
+}
+
+impl State {
+    fn me(&self) -> Option<&Player> {
+        self.my_blobs.first()
+    }
+}
+
 impl Node {
     fn recompute_tip_score(&mut self) {
         self.score = self.state
@@ -68,33 +80,6 @@ impl Node {
         }
 
         score.max(0.0)
-    }
-}
-
-struct State {
-    tick: i64,
-    my_blobs: Vec<Player>,
-    eaten: Rc<HashSet<BlobId>>,
-}
-
-impl State {
-    fn me(&self) -> Option<&Player> {
-        self.my_blobs.first()
-    }
-}
-
-impl MyStrategy {
-    pub fn new() -> MyStrategy {
-        MyStrategy {
-            root: None,
-            commands: VecDeque::new(),
-            food: vec![],
-            ejections: vec![],
-            viruses: vec![],
-            enemies: vec![],
-            #[cfg(feature = "debug")]
-            target: None,
-        }
     }
 }
 
@@ -314,6 +299,19 @@ impl Strategy for MyStrategy {
 }
 
 impl MyStrategy {
+    pub fn new() -> MyStrategy {
+        MyStrategy {
+            root: None,
+            commands: VecDeque::new(),
+            food: vec![],
+            ejections: vec![],
+            viruses: vec![],
+            enemies: vec![],
+            #[cfg(feature = "debug")]
+            target: None,
+        }
+    }
+
     fn add_nodes(&self, root: SharedNode, skips: i64) {
         let power_blobs: Vec<_> = root.borrow()
             .state
@@ -541,36 +539,3 @@ where
         })
         .map(|(i, _)| i)
 }
-
-
-
-//
-//    fn debug_prediction_error(self, tick, my_blobs, command) {
-//        if hasattr(self, "next_blobs") {
-//            for me, next_me in zip(my_blobs, self.next_blobs) {
-//                e = next_me.dist(me)
-//                command.add_debug_message(
-//                    "prediction error: {:.8f} {} {}".format(
-//                        e, next_me.is_fast, me.is_fast))
-//                command.add_debug_message("me.m = {:.8f}".format(me.m))
-//                command.add_debug_message("ne.m = {:.8f}".format(next_me.m))
-//                command.add_debug_message("me.speed = {:.8f}".format(
-//                    me.speed()))
-//                command.add_debug_message("ne.speed = {:.8f}".format(
-//                    next_me.speed()))
-//                command.add_debug_message("me.max_speed = {:.8f}".format(
-//                    me.max_speed()))
-//                command.add_debug_message("ne.max_speed = {:.8f}".format(
-//                    next_me.max_speed()))
-//                if e > 1e-6 && len(my_blobs) > 1 {
-//                    command.pause = True
-//                    command.add_debug_message("cmd: {!r}".format(
-//                        self.last_command))
-//        self.next_blobs = self.predict_state(State(tick, my_blobs),
-//                                             command).my_blobs
-//        for nb in self.next_blobs {
-//            command.add_debug_circle(Circle(nb.x, nb.y, nb.r), "cyan", 0.5)
-//        self.last_command = command
-//
-//
-//        self.viruses = [v for v in viruses if me.can_see(v)]

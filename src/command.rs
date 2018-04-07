@@ -1,6 +1,6 @@
 use models::{Point, HasPoint};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Command {
     point_: Point,
     split_: bool,
@@ -20,17 +20,7 @@ impl HasPoint for Command {
 
 impl Command {
     pub fn new() -> Command {
-        Command {
-            point_: Point::zero(),
-            split_: false,
-            #[cfg(feature = "debug")]
-            pause_: false,
-            debug_messages_: vec![],
-            #[cfg(feature = "debug")]
-            debug_lines_: vec![],
-            #[cfg(feature = "debug")]
-            debug_circles_: vec![],
-        }
+        Default::default()
     }
 
     pub fn from_point(point: Point) -> Command {
@@ -63,24 +53,24 @@ impl Command {
         self.debug_messages_.as_ref()
     }
 
-    #[cfg(feature = "debug")]
-    pub fn debug_lines(&self) -> &[DebugLine] {
-        self.debug_lines_.as_ref()
-    }
-
-    #[cfg(feature = "debug")]
-    pub fn debug_circles(&self) -> &[DebugCircle] {
-        self.debug_circles_.as_ref()
-    }
-
     #[allow(dead_code)]
     pub fn add_debug_message(&mut self, message: String) {
         self.debug_messages_.push(message)
     }
 
     #[cfg(feature = "debug")]
+    pub fn debug_lines(&self) -> &[DebugLine] {
+        self.debug_lines_.as_ref()
+    }
+
+    #[cfg(feature = "debug")]
     pub fn add_debug_line(&mut self, line: DebugLine) {
         self.debug_lines_.push(line)
+    }
+
+    #[cfg(feature = "debug")]
+    pub fn debug_circles(&self) -> &[DebugCircle] {
+        self.debug_circles_.as_ref()
     }
 
     #[cfg(feature = "debug")]

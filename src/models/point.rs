@@ -1,9 +1,21 @@
-use std::ops::{Mul, Add, Div, Sub};
+use std::ops::{Add, Div, Mul, Sub};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Point {
     pub x: f64,
     pub y: f64,
+}
+
+pub trait HasPoint {
+    fn point(&self) -> Point;
+
+    fn x(&self) -> f64 {
+        self.point().x
+    }
+
+    fn y(&self) -> f64 {
+        self.point().y
+    }
 }
 
 impl Point {
@@ -39,6 +51,14 @@ impl Point {
     pub fn unit(self) -> Point {
         self.with_length(1.0)
     }
+
+    pub fn dist<Other: HasPoint>(self, other: Other) -> f64 {
+        (self.x - other.x()).hypot(self.y - other.y())
+    }
+
+    pub fn qdist<Other: HasPoint>(self, other: Other) -> f64 {
+        (self.x - other.x()).powi(2) + (self.y - other.y()).powi(2)
+    }
 }
 
 impl Mul<f64> for Point {
@@ -55,34 +75,6 @@ impl Div<f64> for Point {
     }
 }
 
-pub trait HasPoint {
-    fn point(&self) -> Point;
-
-    fn x(&self) -> f64 {
-        self.point().x
-    }
-
-    fn y(&self) -> f64 {
-        self.point().y
-    }
-}
-
-impl HasPoint for Point {
-    fn point(&self) -> Point {
-        *self
-    }
-}
-
-impl Point {
-    pub fn dist<Other: HasPoint>(self, other: Other) -> f64 {
-        (self.x - other.x()).hypot(self.y - other.y())
-    }
-
-    pub fn qdist<Other: HasPoint>(self, other: Other) -> f64 {
-        (self.x - other.x()).powi(2) + (self.y - other.y()).powi(2)
-    }
-}
-
 impl<Other: HasPoint> Add<Other> for Point {
     type Output = Point;
     fn add(self, other: Other) -> Point {
@@ -94,5 +86,11 @@ impl<Other: HasPoint> Sub<Other> for Point {
     type Output = Point;
     fn sub(self, other: Other) -> Point {
         Point::new(self.x - other.x(), self.y - other.y())
+    }
+}
+
+impl HasPoint for Point {
+    fn point(&self) -> Point {
+        *self
     }
 }
