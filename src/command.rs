@@ -1,4 +1,5 @@
 use models::{Point, HasPoint};
+use config::config;
 
 #[derive(Debug, Default)]
 pub struct Command {
@@ -30,7 +31,10 @@ impl Command {
     }
 
     pub fn set_point(&mut self, point: Point) {
-        self.point_ = point;
+        self.point_ = Point::new(
+            point.x.max(0.0).min(config().game_width as f64),
+            point.y.max(0.0).min(config().game_height as f64),
+        );
     }
 
     pub fn split(&self) -> bool {

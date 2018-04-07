@@ -96,4 +96,5 @@ impl_config! {
     min_shrink_mass: f64 = 100,
     shrink_factor: f64 = 0.01,
     min_burst_mass: f64 = 60.0,
+    collision_power: f64 = 20.0,
 }

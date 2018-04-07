@@ -53,7 +53,7 @@ impl Mechanic {
     pub fn tick(&mut self, command: &Command) {
         self.my_blobs = self.state.my_blobs.values().cloned().collect();
 
-        self.apply_strategies();
+        self.apply_strategies(command);
         self.state.tick += 1;
         self.move_moveables();
         self.player_ejects();
@@ -70,14 +70,36 @@ impl Mechanic {
         self.update_scores();
         self.split_viruses();
 
-        let mut my_blobs = Default::default();
-        mem::swap(&mut my_blobs, &mut self.my_blobs);
+        let my_blobs = mem::replace(&mut self.my_blobs, Default::default());
         self.state.my_blobs = State::my_blobs_from_vec(my_blobs);
     }
 
-    fn apply_strategies(&mut self) {}
-    fn move_moveables(&mut self) {}
+    fn apply_strategies(&mut self, command: &Command) {
+        // TODO: Move other players?
+        for me in self.my_blobs.iter_mut() {
+            apply_direct(me, command);
+        }
+    }
+
+    fn move_moveables(&mut self) {
+        // TODO: Move ejections?
+        // TODO: Move viruses?
+
+        for i in 0..self.my_blobs.len() {
+            for j in (i + 1)..self.my_blobs.len() {
+                let (left, right) = self.my_blobs.as_mut_slice().split_at_mut(j);
+                collision_calc(&mut left[i], &mut right[0]);
+            }
+        }
+
+        // TODO: Move other players?
+        for me in self.my_blobs.iter_mut() {
+            move_player(me);
+        }
+    }
+
     fn player_ejects(&mut self) {}
+
     fn player_splits(&mut self) {}
     fn shrink_players(&mut self) {}
     fn eat_all(&mut self) {}
@@ -88,12 +110,6 @@ impl Mechanic {
     fn split_viruses(&mut self) {}
 
     //pub fn pastebin() {
-    //    // Following the oringial mechanic.
-    //    // apply_strategies: update v.
-    //    for me in my_blobs.iter_mut() {
-    //        me.update_v(command);
-    //    }
-
     //    // shrink_players.
     //    let tick = state.tick + 1;
     //    if tick % config().shrink_every_tick == 0 {
@@ -174,17 +190,6 @@ impl Mechanic {
     //            .flat_map(|me| self.split(me, &mut max_fragment_id))
     //            .collect();
     //    }
-
-    //    // move_moveables: collide (TODO), move, apply viscosity, update ttf.
-    //    for me in my_blobs.iter_mut() {
-    //        me.apply_v();
-    //        me.apply_viscosity();
-    //        if let Some(ttf) = me.ttf_ {
-    //            if ttf > 0 {
-    //                me.ttf_ = Some(ttf - 1);
-    //            }
-    //        }
-    //    }
     //}
 
     //fn split(&self, me: Player, max_fragment_id: &mut u32) -> Vec<Player> {
@@ -226,4 +231,85 @@ impl Mechanic {
     //        vec![me]
     //    }
     //}
+}
+
+fn apply_direct(me: &mut Player, command: &Command) {
+    if me.is_fast() {
+        return;
+    }
+    let max_speed = me.max_speed();
+    let target_v = (command.point() - me.point()).with_length(max_speed);
+    let v = me.v() + (target_v - me.v()) * (config().inertion_factor / me.m());
+    let v = v.limit_length(max_speed);
+    me.set_v(v);
+}
+
+fn move_player(me: &mut Player) {
+    let mut v = me.v();
+
+    let min_x = me.r();
+    let max_x = config().game_width as f64 - me.r();
+    let mut new_x = me.point().x + me.v().x;
+    if !(min_x <= new_x && new_x <= max_x) {
+        v.x = 0.0;
+        new_x = new_x.max(min_x).min(max_x);
+    }
+
+    let min_y = me.r();
+    let max_y = config().game_height as f64 - me.r();
+    let mut new_y = me.point().y + me.v().y;
+    if !(min_y <= new_y && new_y <= max_y) {
+        v.y = 0.0;
+        new_y = new_y.max(min_y).min(max_y);
+    }
+
+    me.set_point(Point::new(new_x, new_y));
+    me.set_v(v);
+
+    if me.is_fast() {
+        apply_viscosity(me);
+    }
+
+    if me.ttf_ > 0 {
+        me.ttf_ = me.ttf_ - 1;
+    }
+}
+
+fn apply_viscosity(me: &mut Player) {
+    let usual_speed = me.max_speed();
+    let mut speed = me.speed();
+    if speed - config().viscosity > usual_speed {
+        speed -= config().viscosity;
+    } else {
+        speed = usual_speed;
+        me.set_fast(false);
+    }
+    let v = me.v().with_length(speed);
+    me.set_v(v);
+}
+
+fn collision_calc(me: &mut Player, other: &mut Player) {
+    if me.is_fast() || other.is_fast() {
+        return;
+    }
+
+    let qdist = me.point().qdist(other.point());
+    let sum_r = me.r() + other.r();
+    if qdist >= sum_r.powi(2) {
+        return;
+    }
+
+    let collision_vector = me.point() - other.point();
+    const MIN_COLLISION_VECTOR_LENGTH: f64 = 1e-9;
+    if collision_vector.length() < MIN_COLLISION_VECTOR_LENGTH {
+        return;
+    }
+    let collision_vector = collision_vector.unit();
+    let collision_force = (1.0 - qdist.sqrt() / sum_r).powi(2) * config().collision_power;
+
+    let sum_m = me.m() + other.m();
+    let v = me.v() + collision_vector * (collision_force * other.m() / sum_m);
+    me.set_v(v);
+    let v = other.v() - collision_vector * (collision_force * me.m() / sum_m);
+    other.set_v(v);
 }

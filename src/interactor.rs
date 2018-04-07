@@ -59,7 +59,7 @@ fn read_tick_data() -> Option<Entities> {
             r_: mine.r,
             v_: Some(Point::new(mine.s_x, mine.s_y)),
             is_fast_: None,
-            ttf_: mine.ttf,
+            ttf_: mine.ttf.unwrap_or(0),
         };
         me.is_fast_ = Some(me.speed() > me.max_speed());
         entities.my_blobs.push(me);
@@ -103,7 +103,7 @@ fn read_tick_data() -> Option<Entities> {
                     r_: obj.r.expect("enemy has no radius"),
                     v_: None,
                     is_fast_: None,
-                    ttf_: None,
+                    ttf_: 0,
                 });
             }
             _ => {

@@ -48,6 +48,17 @@ impl Point {
         }
     }
 
+    pub fn limit_length(self, max_length: f64) -> Point {
+        let current_length = self.length();
+        if current_length == 0.0 {
+            Point::zero()
+        } else if current_length > max_length {
+            self * (max_length / current_length)
+        } else {
+            self
+        }
+    }
+
     pub fn unit(self) -> Point {
         self.with_length(1.0)
     }
