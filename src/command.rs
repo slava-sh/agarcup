@@ -45,6 +45,7 @@ impl Command {
         self.pause_
     }
 
+    #[allow(dead_code)]
     pub fn set_pause(&mut self) {
         self.pause_ = true;
     }

@@ -435,7 +435,7 @@ impl MyStrategy {
         if slow {
             for virus in self.viruses.iter() {
                 if let Some(i) = find_nearest_me(virus, |me| me.can_burst(), my_blobs.as_ref()) {
-                    let ref me = my_blobs.swap_remove(i);
+                    let me = my_blobs.swap_remove(i);
                     my_blobs.extend(self.burst(me, virus));
                 }
             }
@@ -447,7 +447,7 @@ impl MyStrategy {
             me.limit_speed();
         }
         if command.split() {
-            my_blobs = my_blobs.iter().flat_map(|me| self.split(&me)).collect();
+            my_blobs = my_blobs.into_iter().flat_map(|me| self.split(me)).collect();
         }
 
         // move_moveables: collide (TODO), move, apply viscosity, update ttf.
@@ -469,44 +469,42 @@ impl MyStrategy {
         }
     }
 
-    fn split(&self, me: &Player) -> Vec<Player> {
+    fn split(&self, me: Player) -> Vec<Player> {
         // TODO
-        vec![me.clone()]
+        if !me.can_split() {
+            return vec![me];
+        }
+        let m = me.m() / 2.0;
+        let v = Point::from_polar(config().split_start_speed, me.angle());
+
+        let mut me1 = Player {
+            id_: format!("{}+1", me.id()), // TODO: Compute correct ids.
+            point_: me.point(),
+            m_: m,
+            r_: 0.0,
+            v_: Some(v),
+            is_fast_: Some(true),
+            ttf_: Some(config().ticks_til_fusion),
+        };
+        me1.update_r();
+
+        let mut me2 = me;
+        me2.id_ = format!("{}+2", me2.id());
+        me2.m_ = m;
+        me2.update_r();
+        me2.ttf_ = Some(config().ticks_til_fusion);
+
+        vec![me1, me2]
     }
 
-    fn burst(&self, me: &Player, virus: &Virus) -> Vec<Player> {
+    fn burst(&self, me: Player, virus: &Virus) -> Vec<Player> {
         // TODO
-        vec![]
+        if virus.can_hurt(&me) {
+            vec![] // Assume we die.
+        } else {
+            vec![me]
+        }
     }
-
-    //    fn split(self, me) {
-    //        if !me.can_split() {
-    //            return [me]
-    //        m = me.m / 2
-    //        v = Point::from_polar(config().split_start_speed, me.angle())
-    //        return [
-    //            Me(
-    //                id=me.id + "+1",  // TODO: Compute correct ids.
-    //                x=me.x,
-    //                y=me.y,
-    //                m=m,
-    //                v=v,
-    //                is_fast=True,
-    //                ttf=config().ticks_til_fusion),
-    //            Me(id=me.id + "+2",
-    //               x=me.x,
-    //               y=me.y,
-    //               m=m,
-    //               v=me.v,
-    //               is_fast=me.is_fast,
-    //               ttf=config().ticks_til_fusion)
-    //        ]
-    //
-    //    fn burst(self, me, virus) {
-    //        if virus.can_hurt(me) {
-    //            // Assume we die. TODO.
-    //            return []
-    //        return [me]
 }
 
 fn find_nodes(root: &SharedNode) -> Vec<SharedNode> {
