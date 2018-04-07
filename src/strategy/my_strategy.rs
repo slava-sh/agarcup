@@ -1,7 +1,8 @@
-use std::collections::{HashSet, VecDeque};
 use std::cell::RefCell;
-use std::rc::{Rc, Weak};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::f64::consts::PI;
+use std::iter::FromIterator;
+use std::rc::{Rc, Weak};
 
 use strategy::*;
 use config::config;
@@ -28,7 +29,7 @@ pub struct MyStrategy {
     root: SharedNode,
     commands: VecDeque<Command>,
 
-    my_blobs: Vec<Player>,
+    my_blobs: BTreeMap<PlayerBlobId, Player>,
     food: Vec<Food>,
     ejections: Vec<Ejection>,
     viruses: Vec<Virus>,
@@ -52,7 +53,7 @@ type SharedNode = Rc<RefCell<Node>>;
 #[derive(Debug, Default)]
 struct State {
     tick: i64,
-    my_blobs: Vec<Player>,
+    my_blobs: BTreeMap<PlayerBlobId, Player>,
     eaten_food: Rc<HashSet<FoodId>>,
     eaten_ejections: Rc<HashSet<EjectionId>>,
     eaten_viruses: Rc<HashSet<VirusId>>,
@@ -61,7 +62,7 @@ struct State {
 
 impl State {
     fn me(&self) -> Option<&Player> {
-        self.my_blobs.first()
+        self.my_blobs.values().next()
     }
 }
 
@@ -71,7 +72,7 @@ impl Node {
         node.state = state;
         node.score = node.state
             .my_blobs
-            .iter()
+            .values()
             .map(|me| node.compute_blob_score(me))
             .sum::<f64>()
             .max(0.0);
@@ -110,30 +111,30 @@ impl Strategy for MyStrategy {
     ) -> Command {
         let mut command = Command::new();
 
-        self.my_blobs = my_blobs;
+        self.my_blobs = my_blobs_to_map(my_blobs);
         self.food = food;
         self.ejections = ejections;
         self.viruses = viruses;
         self.enemies = enemies;
 
         if self.commands.is_empty() {
-            sort_my_blobs(self.my_blobs.as_mut_slice());
-            let me = &self.my_blobs[0];
+            let me = &self.my_blobs.values().next().unwrap(); // TODO
             let speed = (me.speed() + me.max_speed()) / 2.0;
             self.skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
 
             if self.my_blobs.len() != self.root.borrow().state.my_blobs.len() ||
                 self.my_blobs
-                    .iter()
-                    .zip(self.root.borrow().state.my_blobs.iter())
+                    .values()
+                    .zip(self.root.borrow().state.my_blobs.values())
                     .any(|(a, b)| {
-                        a.id() != b.id() || a.point().qdist(b.point()) > ROOT_EPS.powi(2)
+                        a.id() != b.id() || a.m() != b.m() ||
+                            a.point().qdist(b.point()) > ROOT_EPS.powi(2)
                     })
             {
                 #[cfg(feature = "debug")] self.debug_reset_root(&mut command);
                 self.root = Rc::new(RefCell::new(Node::new(State {
                     tick,
-                    my_blobs: self.my_blobs.to_vec(),
+                    my_blobs: self.my_blobs.clone(),
                     eaten_food: Default::default(),
                     eaten_ejections: Default::default(),
                     eaten_viruses: Default::default(),
@@ -180,10 +181,10 @@ impl MyStrategy {
         let power_blobs: Vec<_> = root.borrow()
             .state
             .my_blobs
-            .iter()
+            .values()
             .take(MAX_POWER_BLOBS as usize)
             .cloned()
-            .collect();
+            .collect(); // TODO: Sort by mass.
         for me in power_blobs {
             for angle in DISCOVERY_ANGLES.iter() {
                 let v = Point::from_polar(config().speed_factor, me.angle() + angle);
@@ -237,7 +238,7 @@ impl MyStrategy {
     }
 
     fn predict_state(&self, state: &State, command: &Command, slow: bool) -> State {
-        let mut my_blobs = state.my_blobs.clone();
+        let mut my_blobs: Vec<Player> = state.my_blobs.values().cloned().collect();
 
         // Following the oringial mechanic.
         // apply_strategies: update v.
@@ -273,9 +274,13 @@ impl MyStrategy {
                 eaten
             }
 
-            let eaten_food = eat(&self.food, &state.eaten_food, &mut my_blobs);
-            let eaten_ejections = eat(&self.ejections, &state.eaten_ejections, &mut my_blobs);
-            let eaten_enemies = eat(&self.enemies, &state.eaten_enemies, &mut my_blobs);
+            let eaten_food = eat(&self.food, &state.eaten_food, my_blobs.as_mut_slice());
+            let eaten_ejections = eat(
+                &self.ejections,
+                &state.eaten_ejections,
+                my_blobs.as_mut_slice(),
+            );
+            let eaten_enemies = eat(&self.enemies, &state.eaten_enemies, my_blobs.as_mut_slice());
 
             for enemy in self.enemies.iter() {
                 if eaten_enemies.contains(enemy.id()) {
@@ -337,10 +342,9 @@ impl MyStrategy {
             }
         }
 
-        sort_my_blobs(my_blobs.as_mut_slice());
         State {
             tick,
-            my_blobs,
+            my_blobs: my_blobs_to_map(my_blobs),
             eaten_food,
             eaten_ejections,
             eaten_viruses: Rc::clone(&state.eaten_viruses),
@@ -391,7 +395,7 @@ impl MyStrategy {
     #[cfg(feature = "debug")]
     fn debug_reset_root(&self, command: &mut Command) {
         if let Some(ref root_me) = self.root.borrow().state.me() {
-            let me = &self.my_blobs[0];
+            let me = self.my_blobs.values().next().unwrap(); // TODO
             command.set_pause();
             command.add_debug_message(format!("RESET"));
             command.add_debug_message(format!("dist = {:.2}", root_me.point().dist(me.point())));
@@ -402,7 +406,7 @@ impl MyStrategy {
     fn debug(&self, command: &mut Command) {
         fn go(node: &SharedNode, tree_size: &mut i64, command: &mut Command) {
             *tree_size = *tree_size + 1;
-            for me in node.borrow().state.my_blobs.iter() {
+            for me in node.borrow().state.my_blobs.values() {
                 command.add_debug_circle(DebugCircle {
                     center: me.point(),
                     radius: 1.0,
@@ -411,12 +415,12 @@ impl MyStrategy {
                 });
             }
             for child in node.borrow().children.iter() {
-                for (n, c) in node.borrow().state.my_blobs.iter().zip(
+                for (n, c) in node.borrow().state.my_blobs.values().zip(
                     child
                         .borrow()
                         .state
                         .my_blobs
-                        .iter(),
+                        .values(),
                 )
                 {
                     command.add_debug_line(DebugLine {
@@ -433,7 +437,7 @@ impl MyStrategy {
         let mut tree_size = 0;
         go(&self.root, &mut tree_size, command);
 
-        for me in self.root.borrow().state.my_blobs.iter() {
+        for me in self.root.borrow().state.my_blobs.values() {
             command.add_debug_circle(DebugCircle {
                 center: me.point(),
                 radius: me.r(),
@@ -442,7 +446,7 @@ impl MyStrategy {
             });
         }
 
-        for me in self.target.borrow().state.my_blobs.iter() {
+        for me in self.target.borrow().state.my_blobs.values() {
             command.add_debug_circle(DebugCircle {
                 center: me.point(),
                 radius: 2.0,
@@ -456,12 +460,12 @@ impl MyStrategy {
                 Some(parent) => parent,
                 None => break,
             };
-            for (n, p) in node.borrow().state.my_blobs.iter().zip(
+            for (n, p) in node.borrow().state.my_blobs.values().zip(
                 parent
                     .borrow()
                     .state
                     .my_blobs
-                    .iter(),
+                    .values(),
             )
             {
                 command.add_debug_line(DebugLine {
@@ -505,8 +509,8 @@ impl MyStrategy {
     }
 }
 
-fn sort_my_blobs(my_blobs: &mut [Player]) {
-    my_blobs.sort_by(|a, b| a.id().cmp(&b.id()));
+fn my_blobs_to_map(my_blobs: Vec<Player>) -> BTreeMap<PlayerBlobId, Player> {
+    BTreeMap::from_iter(my_blobs.into_iter().map(|me| (me.id().clone(), me)))
 }
 
 fn find_nodes(root: &SharedNode) -> Vec<SharedNode> {
