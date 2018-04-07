@@ -1,3 +1,14 @@
-#!/bin/bash
+#!/bin/bash -e
+
 cd "$(dirname "$0")/.."
-cargo build --features debug
+
+if [[ "$1" == "--release" ]]; then
+  BUILD_ARGS="--release"
+  BINARY="release/strategy"
+else
+  BUILD_ARGS="--features debug"
+  BINARY="debug/strategy"
+fi
+
+cargo build $BUILD_ARGS
+(cd ./target; ln -sf "$BINARY" ./latest)
