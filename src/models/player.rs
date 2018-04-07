@@ -127,6 +127,18 @@ impl Player {
         self.ttf_ = ttf;
     }
 
+    pub fn player_id(&self) -> u32 {
+        self.id_.player_id
+    }
+
+    pub fn set_player_id(&mut self, player_id: u32) {
+        self.id_.player_id = player_id;
+    }
+
+    pub fn fragment_id(&self) -> u32 {
+        self.id_.fragment_id
+    }
+
     pub fn set_fragment_id(&mut self, fragment_id: u32) {
         self.id_.fragment_id = fragment_id;
     }

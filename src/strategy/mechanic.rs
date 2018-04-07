@@ -156,7 +156,7 @@ impl Mechanic {
                 .partial_cmp(&b.m())
                 .expect("incomparable mass")
                 .reverse()
-                .then_with(|| a.id().fragment_id.cmp(&b.id().fragment_id))
+                .then_with(|| a.fragment_id().cmp(&b.fragment_id()))
         });
         let mut fused_count = 0;
         loop {
@@ -167,11 +167,9 @@ impl Mechanic {
                     let (left, right) = self.my_blobs.as_mut_slice().split_at_mut(j);
                     let ref mut me = left[i];
                     let ref mut other = right[0];
-                    if me.id().player_id != FUSED && other.id().player_id != FUSED &&
-                        me.can_fuse(other)
-                    {
+                    if me.player_id() != FUSED && other.player_id() != FUSED && me.can_fuse(other) {
                         fusion(me, other);
-                        other.set_fragment_id(FUSED);
+                        other.set_player_id(FUSED);
                         fused_count += 1;
                         fused = true;
                     }
@@ -189,7 +187,7 @@ impl Mechanic {
             self.my_blobs[0].set_fragment_id(0);
         }
         if fused_count != 0 {
-            self.my_blobs.retain(|me| me.id().player_id != FUSED);
+            self.my_blobs.retain(|me| me.player_id() != FUSED);
         }
     }
 
@@ -197,7 +195,7 @@ impl Mechanic {
         let mut fragment_count = self.my_blobs.len() as i64;
         let mut max_fragment_id = self.my_blobs
             .iter()
-            .map(|me| me.id().fragment_id)
+            .map(|me| me.fragment_id())
             .max()
             .unwrap_or(0);
         for virus in viruses.iter() {
@@ -323,15 +321,13 @@ fn split_fragments(my_blobs: &mut Vec<Player>) {
             .partial_cmp(&b.m())
             .expect("incomparable mass")
             .reverse()
-            .then_with(|| a.id().fragment_id.cmp(&b.id().fragment_id).reverse())
+            .then_with(|| a.fragment_id().cmp(&b.fragment_id()).reverse())
     });
     let mut new_blobs = vec![];
     let mut fragment_count = my_blobs.len() as i64;
-    let mut max_fragment_id = my_blobs
-        .iter()
-        .map(|me| me.id().fragment_id)
-        .max()
-        .unwrap_or(0);
+    let mut max_fragment_id = my_blobs.iter().map(|me| me.fragment_id()).max().unwrap_or(
+        0,
+    );
     for me in my_blobs.iter_mut() {
         if me.can_split(fragment_count) {
             new_blobs.push(split_now(me, &mut max_fragment_id));
@@ -347,7 +343,7 @@ fn split_now(me: &mut Player, max_fragment_id: &mut u32) -> Player {
 
     let new_blob = Player {
         id_: PlayerBlobId {
-            player_id: me.id().player_id,
+            player_id: me.player_id(),
             fragment_id: *max_fragment_id + 1,
         },
         point_: me.point(),
@@ -363,7 +359,7 @@ fn split_now(me: &mut Player, max_fragment_id: &mut u32) -> Player {
     me.set_r(new_r);
     me.set_ttf(config().ticks_til_fusion);
 
-    *max_fragment_id = me.id().fragment_id;
+    *max_fragment_id = me.fragment_id();
     new_blob
 }
 
@@ -470,7 +466,7 @@ fn burst_now(me: &mut Player, fragment_count: i64, max_fragment_id: &mut u32) ->
                 i as f64 * config().burst_angle_spectrum / new_fragment_count as f64;
             Player {
                 id_: PlayerBlobId {
-                    player_id: me.id().player_id,
+                    player_id: me.player_id(),
                     fragment_id: *max_fragment_id + 1 + i as u32,
                 },
                 point_: me.point(),
@@ -495,7 +491,7 @@ fn burst_now(me: &mut Player, fragment_count: i64, max_fragment_id: &mut u32) ->
     me.set_r(new_r);
     me.set_ttf(config().ticks_til_fusion);
 
-    *max_fragment_id = me.id().fragment_id;
+    *max_fragment_id = me.fragment_id();
     new_blobs
 }
 

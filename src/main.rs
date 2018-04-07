@@ -44,6 +44,7 @@ fn init_logging() {
             std::fs::OpenOptions::new()
                 .write(true)
                 .create(true)
+                .truncate(true)
                 .open("/tmp/strategy.log")
                 .expect("opening log file failed"),
         )
