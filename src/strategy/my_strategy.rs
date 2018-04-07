@@ -7,9 +7,7 @@ use strategy::*;
 use strategy::mechanic::{Mechanic, State};
 use config::config;
 
-const ROOT_EPS: f64 = 1.0;
-const MASS_EPS: f64 = 0.5;
-const MAX_POWER_BLOBS: i64 = 1;
+const MAX_LEADING_BLOBS: i64 = 3;
 const MAX_DEPTH: i64 = 15;
 const MIN_SKIPS: i64 = 5;
 
@@ -28,6 +26,7 @@ lazy_static! {
 #[derive(Debug, Default)]
 pub struct MyStrategy {
     root: SharedNode,
+    next_root: SharedNode,
     commands: VecDeque<Command>,
 
     state: State,
@@ -107,20 +106,8 @@ impl Strategy for MyStrategy {
             let speed = (me.speed() + me.max_speed()) / 2.0;
             self.skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
 
-            if self.state.my_blobs.len() != self.root.borrow().state.my_blobs.len() ||
-                self.state
-                    .my_blobs
-                    .values()
-                    .zip(self.root.borrow().state.my_blobs.values())
-                    .any(|(a, b)| {
-                        a.id() != b.id() || (a.m() - b.m()).abs() > MASS_EPS ||
-                            a.point().qdist(b.point()) > ROOT_EPS.powi(2)
-                    })
-            {
-                //#[cfg(feature = "debug")] self.debug_reset_root(&mut command);
-                self.root = Rc::new(RefCell::new(Node::new(self.state.clone())));
-                self.add_nodes(&self.root);
-            }
+            self.root = Rc::new(RefCell::new(Node::new(self.state.clone())));
+            self.add_nodes(&self.root);
 
             self.target = find_nodes(&self.root)
                 .into_iter()
@@ -131,16 +118,12 @@ impl Strategy for MyStrategy {
                     )
                 })
                 .expect("no nodes found");
-            self.root = self.next_root();
-            self.root.borrow_mut().parent = Weak::new();
+            self.next_root = self.next_root();
             self.commands.extend(
-                self.root.borrow().commands.iter().map(
-                    |command| {
-                        Command::from_point(command.point())
-                    },
+                self.next_root.borrow().commands.iter().map(
+                    |command| Command::from_point(command.point()),
                 ),
             );
-            self.add_nodes(&self.root);
         }
 
         command.set_point(self.commands.pop_front().expect("no commands left").point());
@@ -160,14 +143,14 @@ impl MyStrategy {
     }
 
     fn add_nodes(&self, root: &SharedNode) {
-        let power_blobs: Vec<_> = root.borrow()
+        let leading_blobs: Vec<_> = root.borrow()
             .state
             .my_blobs
             .values()
-            .take(MAX_POWER_BLOBS as usize)
+            .take(MAX_LEADING_BLOBS as usize)
             .cloned()
             .collect(); // TODO: Sort by mass.
-        for me in power_blobs {
+        for me in leading_blobs {
             for angle in DISCOVERY_ANGLES.iter() {
                 let v = Point::from_polar(config().speed_factor, me.angle() + angle);
                 let mut node = Rc::clone(&root);
@@ -233,33 +216,6 @@ impl MyStrategy {
     }
 
     #[cfg(feature = "debug")]
-    fn debug_reset_root(&self, command: &mut Command) {
-        let ref root = self.root.borrow();
-        command.set_pause();
-        command.add_debug_message(format!("RESET"));
-        if self.state.my_blobs.len() != root.state.my_blobs.len() {
-            command.add_debug_message(format!(
-                "len: {} vs {}",
-                self.state.my_blobs.len(),
-                root.state.my_blobs.len()
-            ));
-        }
-        self.state
-            .my_blobs
-            .values()
-            .zip(root.state.my_blobs.values())
-            .for_each(|(a, b)| {
-                if a.id() != b.id() {
-                    command.add_debug_message(format!("id: {:?} vs {:?}", a.id(), b.id()));
-                }
-                if (a.m() - b.m()).abs() > MASS_EPS {
-                    command.add_debug_message(format!("m: {} vs {}", a.m(), b.m()));
-                }
-                command.add_debug_message(format!("dist: {:.2}", a.point().dist(b.point())));
-            });
-    }
-
-    #[cfg(feature = "debug")]
     fn debug(&self, command: &mut Command) {
         fn go(node: &SharedNode, tree_size: &mut i64, command: &mut Command) {
             *tree_size = *tree_size + 1;
@@ -294,7 +250,7 @@ impl MyStrategy {
         let mut tree_size = 0;
         go(&self.root, &mut tree_size, command);
 
-        for me in self.root.borrow().state.my_blobs.values() {
+        for me in self.next_root.borrow().state.my_blobs.values() {
             command.add_debug_circle(DebugCircle {
                 center: me.point(),
                 radius: me.r(),
