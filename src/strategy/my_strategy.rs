@@ -27,12 +27,14 @@ lazy_static! {
 pub struct MyStrategy {
     root: SharedNode,
     commands: VecDeque<Command>,
+
+    my_blobs: Vec<Player>,
     food: Vec<Food>,
     ejections: Vec<Ejection>,
     viruses: Vec<Virus>,
     enemies: Vec<Player>,
+
     skips: i64,
-    #[cfg(feature = "debug")]
     target: SharedNode,
 }
 
@@ -102,43 +104,37 @@ impl Strategy for MyStrategy {
     ) -> Command {
         let mut command = Command::new();
 
+        self.my_blobs = my_blobs;
+        self.my_blobs.sort_by(|a, b| {
+            a.m().partial_cmp(&b.m()).expect("incomparable mass")
+        });
         self.food = food;
         self.ejections = ejections;
         self.viruses = viruses;
         self.enemies = enemies;
 
-        let mut my_blobs = my_blobs;
-        my_blobs.sort_by(|a, b| a.m().partial_cmp(&b.m()).expect("incomparable mass"));
-        let me = &my_blobs[0];
-
+        let me = &self.my_blobs[0];
         let speed = (me.speed() + me.max_speed()) / 2.0;
         self.skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
 
         let mut should_reset_root = true;
+        // TODO: Fix multiple blobs.
         if let Some(ref root_me) = self.root.borrow().state.me() {
             should_reset_root = self.commands.is_empty() &&
                 root_me.point().qdist(me.point()) > ROOT_EPS.powi(2)
         }
         if should_reset_root {
-            #[cfg(feature = "debug")]
-            {
-                if let Some(ref root_me) = self.root.borrow().state.me() {
-                    command.add_debug_message(format!("RESET"));
-                    command.add_debug_message(
-                        format!("dist = {:.2}", root_me.point().dist(me.point())),
-                    );
-                }
-            }
+            #[cfg(feature = "debug")] self.debug_reset_root(&mut command);
             self.root = Rc::new(RefCell::new(Node::new(State {
                 tick,
-                my_blobs: my_blobs.to_vec(),
+                my_blobs: self.my_blobs.to_vec(),
                 eaten: Rc::new(HashSet::new()),
             })));
             self.add_nodes(&self.root);
         }
 
         if self.commands.is_empty() {
-            let target = find_nodes(&self.root)
+            self.target = find_nodes(&self.root)
                 .into_iter()
                 .filter(|node| !Rc::ptr_eq(&node, &self.root))
                 .max_by(|a, b| {
@@ -147,140 +143,21 @@ impl Strategy for MyStrategy {
                     )
                 })
                 .expect("no nodes found");
-            #[cfg(feature = "debug")]
-            {
-                self.target = Rc::clone(&target);
-            }
-            self.root = self.get_next_root(target);
+            self.root = self.next_root();
             self.root.borrow_mut().parent = Weak::new();
-            for command in self.root.borrow().commands.iter() {
-                self.commands.push_back(
-                    Command::from_point(command.point()),
-                );
-            }
+            self.commands.extend(
+                self.root.borrow().commands.iter().map(
+                    |command| {
+                        Command::from_point(command.point())
+                    },
+                ),
+            );
             self.add_nodes(&self.root);
         }
 
         command.set_point(self.commands.pop_front().expect("no commands left").point());
 
-        #[cfg(feature = "debug")]
-        {
-            fn go(node: &SharedNode, tree_size: &mut i64, command: &mut Command) {
-                *tree_size = *tree_size + 1;
-                for me in node.borrow().state.my_blobs.iter() {
-                    command.add_debug_circle(DebugCircle {
-                        center: me.point(),
-                        radius: 1.0,
-                        color: String::from("black"),
-                        opacity: 0.3,
-                    });
-                }
-                for child in node.borrow().children.iter() {
-                    for (n, c) in node.borrow().state.my_blobs.iter().zip(
-                        child
-                            .borrow()
-                            .state
-                            .my_blobs
-                            .iter(),
-                    )
-                    {
-                        command.add_debug_line(DebugLine {
-                            a: n.point(),
-                            b: c.point(),
-                            color: String::from("black"),
-                            opacity: 0.3,
-                        });
-                    }
-                    go(child, tree_size, command);
-                }
-            }
-
-            let mut tree_size = 0;
-            go(&self.root, &mut tree_size, &mut command);
-
-            for me in self.root.borrow().state.my_blobs.iter() {
-                command.add_debug_circle(DebugCircle {
-                    center: me.point(),
-                    radius: me.r(),
-                    color: String::from("green"),
-                    opacity: 0.1,
-                });
-            }
-
-            for me in self.target.borrow().state.my_blobs.iter() {
-                command.add_debug_circle(DebugCircle {
-                    center: me.point(),
-                    radius: 2.0,
-                    color: String::from("red"),
-                    opacity: 1.0,
-                });
-            }
-            let mut node = Rc::clone(&self.target);
-            loop {
-                let parent = match node.borrow().parent.upgrade() {
-                    Some(parent) => parent,
-                    None => break,
-                };
-                for (n, p) in node.borrow().state.my_blobs.iter().zip(
-                    parent
-                        .borrow()
-                        .state
-                        .my_blobs
-                        .iter(),
-                )
-                {
-                    command.add_debug_line(DebugLine {
-                        a: n.point(),
-                        b: p.point(),
-                        color: String::from("black"),
-                        opacity: 1.0,
-                    });
-                }
-                node = parent;
-            }
-
-            fn as_blob<B: Blob>(b: &B) -> &Blob {
-                b as &Blob
-            }
-            use std::iter;
-            for blob in iter::empty()
-                .chain(self.food.iter().map(as_blob))
-                .chain(self.ejections.iter().map(as_blob))
-                .chain(self.viruses.iter().map(as_blob))
-                .chain(self.enemies.iter().map(as_blob))
-            {
-                if self.target.borrow().state.eaten.contains(blob.id()) {
-                    command.add_debug_circle(DebugCircle {
-                        center: blob.point(),
-                        radius: blob.r() + 2.0,
-                        color: String::from("green"),
-                        opacity: 0.5,
-                    });
-                }
-            }
-
-            for blob in iter::empty()
-                .chain(self.viruses.iter().map(as_blob))
-                .chain(self.enemies.iter().map(as_blob))
-            {
-                command.add_debug_circle(DebugCircle {
-                    center: blob.point(),
-                    radius: blob.r() + 2.0,
-                    color: String::from("red"),
-                    opacity: 0.1,
-                });
-            }
-
-            command.add_debug_message(format!("skips: {}", self.skips));
-            command.add_debug_message(format!("queue: {}", self.commands.len()));
-            command.add_debug_message(format!("tree: {}", tree_size));
-            if command.split() {
-                command.add_debug_message(format!("SPLIT"));
-            }
-            if command.pause() {
-                command.add_debug_message(format!("PAUSE"));
-            }
-        }
+        #[cfg(feature = "debug")] self.debug(&mut command);
 
         command
     }
@@ -326,8 +203,8 @@ impl MyStrategy {
         }
     }
 
-    fn get_next_root(&self, target: SharedNode) -> SharedNode {
-        let mut node = target;
+    fn next_root(&self) -> SharedNode {
+        let mut node = Rc::clone(&self.target);
         loop {
             let mut next = None;
             if let Some(parent) = node.borrow().parent.upgrade() {
@@ -342,7 +219,6 @@ impl MyStrategy {
         }
         node
     }
-
 
     fn predict_states(&self, state: &State, commands: &[Command]) -> State {
         let mut state = self.predict_state(state, &commands[0], true);
@@ -479,6 +355,135 @@ impl MyStrategy {
             vec![] // Assume we die.
         } else {
             vec![me]
+        }
+    }
+
+    #[cfg(feature = "debug")]
+    fn debug_reset_root(&self, command: &mut Command) {
+        if let Some(ref root_me) = self.root.borrow().state.me() {
+            let me = &self.my_blobs[0];
+            command.set_pause();
+            command.add_debug_message(format!("RESET"));
+            command.add_debug_message(format!("dist = {:.2}", root_me.point().dist(me.point())));
+        }
+    }
+
+    #[cfg(feature = "debug")]
+    fn debug(&self, command: &mut Command) {
+        fn go(node: &SharedNode, tree_size: &mut i64, command: &mut Command) {
+            *tree_size = *tree_size + 1;
+            for me in node.borrow().state.my_blobs.iter() {
+                command.add_debug_circle(DebugCircle {
+                    center: me.point(),
+                    radius: 1.0,
+                    color: String::from("black"),
+                    opacity: 0.3,
+                });
+            }
+            for child in node.borrow().children.iter() {
+                for (n, c) in node.borrow().state.my_blobs.iter().zip(
+                    child
+                        .borrow()
+                        .state
+                        .my_blobs
+                        .iter(),
+                )
+                {
+                    command.add_debug_line(DebugLine {
+                        a: n.point(),
+                        b: c.point(),
+                        color: String::from("black"),
+                        opacity: 0.3,
+                    });
+                }
+                go(child, tree_size, command);
+            }
+        }
+
+        let mut tree_size = 0;
+        go(&self.root, &mut tree_size, command);
+
+        for me in self.root.borrow().state.my_blobs.iter() {
+            command.add_debug_circle(DebugCircle {
+                center: me.point(),
+                radius: me.r(),
+                color: String::from("green"),
+                opacity: 0.1,
+            });
+        }
+
+        for me in self.target.borrow().state.my_blobs.iter() {
+            command.add_debug_circle(DebugCircle {
+                center: me.point(),
+                radius: 2.0,
+                color: String::from("red"),
+                opacity: 1.0,
+            });
+        }
+        let mut node = Rc::clone(&self.target);
+        loop {
+            let parent = match node.borrow().parent.upgrade() {
+                Some(parent) => parent,
+                None => break,
+            };
+            for (n, p) in node.borrow().state.my_blobs.iter().zip(
+                parent
+                    .borrow()
+                    .state
+                    .my_blobs
+                    .iter(),
+            )
+            {
+                command.add_debug_line(DebugLine {
+                    a: n.point(),
+                    b: p.point(),
+                    color: String::from("black"),
+                    opacity: 1.0,
+                });
+            }
+            node = parent;
+        }
+
+        fn as_blob<B: Blob>(b: &B) -> &Blob {
+            b as &Blob
+        }
+        use std::iter;
+        for blob in iter::empty()
+            .chain(self.food.iter().map(as_blob))
+            .chain(self.ejections.iter().map(as_blob))
+            .chain(self.viruses.iter().map(as_blob))
+            .chain(self.enemies.iter().map(as_blob))
+        {
+            if self.target.borrow().state.eaten.contains(blob.id()) {
+                command.add_debug_circle(DebugCircle {
+                    center: blob.point(),
+                    radius: blob.r() + 2.0,
+                    color: String::from("green"),
+                    opacity: 0.5,
+                });
+            }
+        }
+
+        for blob in iter::empty()
+            .chain(self.viruses.iter().map(as_blob))
+            .chain(self.enemies.iter().map(as_blob))
+        {
+            command.add_debug_circle(DebugCircle {
+                center: blob.point(),
+                radius: blob.r() + 2.0,
+                color: String::from("red"),
+                opacity: 0.1,
+            });
+        }
+
+        command.add_debug_message(format!("skips: {}", self.skips));
+        command.add_debug_message(format!("queue: {}", self.commands.len()));
+        command.add_debug_message(format!("tree: {}", tree_size));
+        if command.split() {
+            command.add_debug_message(format!("SPLIT"));
+        }
+        if command.pause() {
+            command.add_debug_message(format!("PAUSE"));
         }
     }
 }
