@@ -6,7 +6,7 @@ pub struct Ejection {
     pub point_: Point,
 }
 
-pub type EjectionId = String;
+pub type EjectionId = u64;
 
 impl HasPoint for Ejection {
     fn point(&self) -> Point {

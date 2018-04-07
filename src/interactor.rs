@@ -1,4 +1,6 @@
 use std::io;
+use std::num::ParseIntError;
+use std::str::FromStr;
 
 use serde_json;
 
@@ -51,7 +53,7 @@ fn read_tick_data() -> Option<Entities> {
     let mut entities = Entities::default();
     for mine in data.mine {
         let mut me = Player {
-            id_: mine.id,
+            id_: mine.id.parse().expect("failed to parse my id"),
             point_: Point::new(mine.x, mine.y),
             m_: mine.m,
             r_: mine.r,
@@ -67,26 +69,35 @@ fn read_tick_data() -> Option<Entities> {
         match obj.t.as_ref() {
             "F" => {
                 entities.food.push(Food {
-                    id_: format!("F{:.1}{:.1}", point.x, point.y),
+                    id_: FoodId {
+                        x10: (point.x * 10.0).floor() as u32,
+                        y10: (point.y * 10.0).floor() as u32,
+                    },
                     point_: point,
                 });
             }
             "E" => {
                 entities.ejections.push(Ejection {
-                    id_: format!("E{:.1}{:.1}", point.x, point.y),
+                    id_: obj.id.expect("ejection has no id").parse().expect(
+                        "failed to parse ejection id",
+                    ),
                     point_: point,
                 });
             }
             "V" => {
                 entities.viruses.push(Virus {
-                    id_: obj.id.expect("virus has no id"),
+                    id_: obj.id.expect("virus has no id").parse().expect(
+                        "failed to parse virus id",
+                    ),
                     point_: point,
                     m_: obj.m.expect("virus has no mass"),
                 });
             }
             "P" => {
                 entities.enemies.push(Player {
-                    id_: obj.id.expect("enemy has no id"),
+                    id_: obj.id.expect("enemy has no id").parse().expect(
+                        "failed to parse enemy id",
+                    ),
                     point_: point,
                     m_: obj.m.expect("enemy has no mass"),
                     r_: obj.r.expect("enemy has no radius"),
@@ -244,4 +255,21 @@ struct DrawCircle {
     r: f64,
     c: String,
     a: f64,
+}
+
+impl FromStr for PlayerBlobId {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut parts = s.split('.');
+        let player_id = parts.next().expect("no player id").parse()?;
+        let fragment_id = match parts.next() {
+            Some(s) => s.parse()?,
+            None => 0,
+        };
+        Ok(PlayerBlobId {
+            player_id,
+            fragment_id,
+        })
+    }
 }

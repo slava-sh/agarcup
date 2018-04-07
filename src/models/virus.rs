@@ -7,7 +7,7 @@ pub struct Virus {
     pub m_: f64,
 }
 
-pub type VirusId = String;
+pub type VirusId = u64;
 
 impl HasPoint for Virus {
     fn point(&self) -> Point {

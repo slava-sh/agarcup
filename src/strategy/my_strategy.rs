@@ -315,7 +315,13 @@ impl MyStrategy {
             me.limit_speed();
         }
         if command.split() {
-            my_blobs = my_blobs.into_iter().flat_map(|me| self.split(me)).collect();
+            let mut max_fragment_id = my_blobs.iter().map(|me| me.id().fragment_id).max().expect(
+                "max_fragment_id",
+            );
+            my_blobs = my_blobs
+                .into_iter()
+                .flat_map(|me| self.split(me, &mut max_fragment_id))
+                .collect();
         }
 
         // move_moveables: collide (TODO), move, apply viscosity, update ttf.
@@ -340,7 +346,7 @@ impl MyStrategy {
         }
     }
 
-    fn split(&self, me: Player) -> Vec<Player> {
+    fn split(&self, me: Player, max_fragment_id: &mut u32) -> Vec<Player> {
         // TODO
         if !me.can_split() {
             return vec![me];
@@ -349,7 +355,10 @@ impl MyStrategy {
         let v = Point::from_polar(config().split_start_speed, me.angle());
 
         let mut me1 = Player {
-            id_: format!("{}+1", me.id()), // TODO: Compute correct ids.
+            id_: PlayerBlobId {
+                player_id: me.id().player_id,
+                fragment_id: *max_fragment_id + 1,
+            },
             point_: me.point(),
             m_: m,
             r_: 0.0,
@@ -360,11 +369,12 @@ impl MyStrategy {
         me1.update_r();
 
         let mut me2 = me;
-        me2.id_ = format!("{}+2", me2.id());
+        me2.id_.fragment_id = *max_fragment_id + 2;
         me2.m_ = m;
         me2.update_r();
         me2.ttf_ = Some(config().ticks_til_fusion);
 
+        *max_fragment_id += 2;
         vec![me1, me2]
     }
 

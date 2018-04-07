@@ -6,7 +6,11 @@ pub struct Food {
     pub point_: Point,
 }
 
-pub type FoodId = String;
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FoodId {
+    pub x10: u32,
+    pub y10: u32,
+}
 
 impl HasPoint for Food {
     fn point(&self) -> Point {

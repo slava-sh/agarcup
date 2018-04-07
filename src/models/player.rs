@@ -12,7 +12,11 @@ pub struct Player {
     pub ttf_: Option<i64>,
 }
 
-pub type PlayerBlobId = String;
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PlayerBlobId {
+    pub player_id: u32,
+    pub fragment_id: u32,
+}
 
 impl HasPoint for Player {
     fn point(&self) -> Point {
