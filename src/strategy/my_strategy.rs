@@ -67,6 +67,7 @@ impl Node {
     fn compute_blob_score(&self, me: &Player) -> f64 {
         let mut score = 0.0;
         score += me.m();
+
         score += me.speed() * SPEED_REWARD_FACTOR;
 
         // TODO: safety.
@@ -256,6 +257,14 @@ impl MyStrategy {
                 opacity: 0.1,
             });
         }
+
+        let command_point = command.point();
+        command.add_debug_circle(DebugCircle {
+            center: command_point,
+            radius: 4.0,
+            color: String::from("pink"),
+            opacity: 1.0,
+        });
 
         for me in self.target.borrow().state.my_blobs.values() {
             command.add_debug_circle(DebugCircle {
