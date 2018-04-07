@@ -117,7 +117,7 @@ impl Strategy for MyStrategy {
                             a.point().qdist(b.point()) > ROOT_EPS.powi(2)
                     })
             {
-                #[cfg(feature = "debug")] self.debug_reset_root(&mut command);
+                //#[cfg(feature = "debug")] self.debug_reset_root(&mut command);
                 self.root = Rc::new(RefCell::new(Node::new(self.state.clone())));
                 self.add_nodes(&self.root);
             }
