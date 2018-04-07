@@ -1,7 +1,7 @@
 use models::{Point, HasPoint};
 use config::config;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Command {
     point_: Point,
     split_: bool,
@@ -85,7 +85,7 @@ impl Command {
 }
 
 #[cfg(feature = "debug")]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DebugLine {
     pub a: Point,
     pub b: Point,
@@ -94,7 +94,7 @@ pub struct DebugLine {
 }
 
 #[cfg(feature = "debug")]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DebugCircle {
     pub center: Point,
     pub radius: f64,

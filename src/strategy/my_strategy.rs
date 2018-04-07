@@ -17,6 +17,9 @@ const SPEED_REWARD_FACTOR: f64 = 0.01;
 const SAFETY_MARGIN_FACTOR: f64 = 2.5;
 const SAFETY_MARGIN_PENALTY: f64 = -3.0;
 
+const SMALL_BLOB_PENALTY: f64 = -10.0;
+const MAX_SMALL_BLOB_MASS: f64 = 85.0;
+
 lazy_static! {
     static ref DISCOVERY_ANGLES: Vec<f64> = {
         let n = 4 * 3;
@@ -70,6 +73,10 @@ impl Node {
 
         score += me.speed() * SPEED_REWARD_FACTOR;
 
+        if me.m() <= MAX_SMALL_BLOB_MASS {
+            score += SMALL_BLOB_PENALTY;
+        }
+
         // TODO: safety.
         // TODO: global goal.
 
@@ -122,9 +129,11 @@ impl Strategy for MyStrategy {
                 .expect("no nodes found");
             self.next_root = self.next_root();
             self.commands.extend(
-                self.next_root.borrow().commands.iter().map(
-                    |command| Command::from_point(command.point()),
-                ),
+                self.next_root
+                    .borrow()
+                    .commands
+                    .iter()
+                    .cloned(),
             );
         }
 
@@ -149,29 +158,43 @@ impl MyStrategy {
             .take(MAX_LEADING_BLOBS as usize)
             .cloned()
             .collect(); // TODO: Sort by mass.
+        let fragment_count = root.borrow().state.my_blobs.len() as i64;
         for me in leading_blobs {
+            let splits = if !self.enemies.is_empty() && me.can_split(fragment_count) {
+                vec![false, true]
+            } else {
+                vec![false]
+            };
             for angle in DISCOVERY_ANGLES.iter() {
-                let v = Point::from_polar(COMMAND_DISTANCE, me.angle() + angle);
-                let mut node = Rc::clone(&root);
-                for _depth in 0..MAX_DEPTH {
-                    // TODO: Move away from me.
-                    let node_me: Player = match node.borrow().state.my_blobs.values().next() {
-                        Some(node_me) => node_me.clone(),
-                        None => break,
-                    };
-                    if !me.can_see(&node_me) {
-                        break;
+                for split in splits.iter() {
+                    let v = Point::from_polar(COMMAND_DISTANCE, me.angle() + angle);
+                    let mut node = Rc::clone(&root);
+                    for _depth in 0..MAX_DEPTH {
+                        // TODO: Move away from me.
+                        let node_me: Player = match node.borrow().state.my_blobs.values().next() {
+                            Some(node_me) => node_me.clone(),
+                            None => break,
+                        };
+                        if !me.can_see(&node_me) {
+                            break;
+                        }
+                        let commands: Vec<_> = (0..self.skips)
+                            .map(|i| {
+                                let mut command = Command::from_point(node_me.point() + v);
+                                if *split && i == 0 {
+                                    command.set_split()
+                                }
+                                command
+                            })
+                            .collect();
+                        let state = self.predict_states(&node.borrow().state, commands.as_ref());
+                        let mut child = Node::new(state);
+                        child.parent = Rc::downgrade(&node);
+                        child.commands = commands;
+                        let child = Rc::new(RefCell::new(child));
+                        node.borrow_mut().children.push(Rc::clone(&child));
+                        node = child;
                     }
-                    let commands: Vec<_> = (0..self.skips)
-                        .map(|_i| Command::from_point(node_me.point() + v))
-                        .collect();
-                    let state = self.predict_states(&node.borrow().state, commands.as_ref());
-                    let mut child = Node::new(state);
-                    child.parent = Rc::downgrade(&node);
-                    child.commands = commands;
-                    let child = Rc::new(RefCell::new(child));
-                    node.borrow_mut().children.push(Rc::clone(&child));
-                    node = child;
                 }
             }
         }
