@@ -59,7 +59,7 @@ impl Player {
     }
 
     pub fn can_fuse(&self, other: &Player) -> bool {
-        self.ttf_ == 0 && other.ttf_ == 0 &&
+        self.ttf() == 0 && other.ttf() == 0 &&
             self.point().qdist(other.point()) <= (self.r() + other.r()).powi(2)
     }
 
@@ -69,10 +69,6 @@ impl Player {
         }
         let frags_cnt = (self.m() / config().min_burst_mass).floor() as i64;
         frags_cnt > 1
-    }
-
-    pub fn can_hurt<Other: Blob>(&self, other: &Other) -> bool {
-        self.can_eat(other)
     }
 
     pub fn can_split(&self, yet_cnt: i64) -> bool {
@@ -121,6 +117,18 @@ impl Player {
 
     pub fn set_r(&mut self, r: f64) {
         self.r_ = r;
+    }
+
+    pub fn ttf(&self) -> i64 {
+        self.ttf_
+    }
+
+    pub fn set_ttf(&mut self, ttf: i64) {
+        self.ttf_ = ttf;
+    }
+
+    pub fn set_fragment_id(&mut self, fragment_id: u32) {
+        self.id_.fragment_id = fragment_id;
     }
 
     pub fn rest_fragment_count(existing_fragment_count: i64) -> i64 {

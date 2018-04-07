@@ -61,7 +61,8 @@ fn read_tick_data() -> Option<Entities> {
             is_fast_: None,
             ttf_: mine.ttf.unwrap_or(0),
         };
-        me.is_fast_ = Some(me.speed() > me.max_speed());
+        let is_fast = me.speed() > me.max_speed();
+        me.set_fast(is_fast);
         entities.my_blobs.push(me);
     }
     for obj in data.objects {

@@ -171,7 +171,7 @@ impl Mechanic {
                         me.can_fuse(other)
                     {
                         fusion(me, other);
-                        other.id_.player_id = FUSED;
+                        other.set_fragment_id(FUSED);
                         fused_count += 1;
                         fused = true;
                     }
@@ -186,7 +186,7 @@ impl Mechanic {
             }
         }
         if self.my_blobs.len() == 1 {
-            self.my_blobs[0].id_.fragment_id = 0;
+            self.my_blobs[0].set_fragment_id(0);
         }
         if fused_count != 0 {
             self.my_blobs.retain(|me| me.id().player_id != FUSED);
@@ -272,8 +272,9 @@ fn move_player(me: &mut Player) {
         apply_viscosity(me);
     }
 
-    if me.ttf_ > 0 {
-        me.ttf_ = me.ttf_ - 1;
+    if me.ttf() > 0 {
+        let ttf = me.ttf() - 1;
+        me.set_ttf(ttf);
     }
 }
 
@@ -357,10 +358,10 @@ fn split_now(me: &mut Player, max_fragment_id: &mut u32) -> Player {
         ttf_: config().ticks_til_fusion,
     };
 
-    me.id_.fragment_id = *max_fragment_id + 2;
-    me.ttf_ = config().ticks_til_fusion;
-    me.m_ = new_m;
-    me.r_ = new_r;
+    me.set_fragment_id(*max_fragment_id + 2);
+    me.set_m(new_m);
+    me.set_r(new_r);
+    me.set_ttf(config().ticks_til_fusion);
 
     *max_fragment_id = me.id().fragment_id;
     new_blob
@@ -489,10 +490,10 @@ fn burst_now(me: &mut Player, fragment_count: i64, max_fragment_id: &mut u32) ->
     me.set_v(v);
     me.set_fast(true);
 
-    me.id_.fragment_id = *max_fragment_id + 1 + new_fragment_count as u32;
-    me.ttf_ = config().ticks_til_fusion;
+    me.set_fragment_id(*max_fragment_id + 1 + new_fragment_count as u32);
     me.set_m(new_m);
     me.set_r(new_r);
+    me.set_ttf(config().ticks_til_fusion);
 
     *max_fragment_id = me.id().fragment_id;
     new_blobs
