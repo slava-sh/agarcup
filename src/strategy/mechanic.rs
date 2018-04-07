@@ -146,7 +146,12 @@ impl Mechanic {
 
     fn fuse_players(&mut self) {}
     fn burst_on_viruses(&mut self) {}
-    fn update_players_radius(&mut self) {}
+
+    fn update_players_radius(&mut self) {
+        for me in self.my_blobs.iter_mut() {
+            update_by_mass(me);
+        }
+    }
 
     fn update_scores(&mut self) {}
 
@@ -358,6 +363,25 @@ where
                 .expect("incomparable distances")
         })
         .map(|(i, _)| i)
+}
+
+fn update_by_mass(me: &mut Player) {
+    let r = mass_to_radius(me.m());
+    me.set_r(r);
+
+    if !me.is_fast() {
+        let v = me.v().limit_length(me.max_speed());
+        me.set_v(v);
+    }
+
+
+    let x = me.point().x.max(me.r()).min(
+        config().game_width as f64 - me.r(),
+    );
+    let y = me.point().y.max(me.r()).min(
+        config().game_height as f64 - me.r(),
+    );
+    me.set_point(Point::new(x, y));
 }
 
 fn mass_to_radius(mass: f64) -> f64 {
