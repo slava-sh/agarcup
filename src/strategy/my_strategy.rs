@@ -31,6 +31,7 @@ pub struct MyStrategy {
     ejections: Vec<Ejection>,
     viruses: Vec<Virus>,
     enemies: Vec<Player>,
+    skips: i64,
     #[cfg(feature = "debug")]
     target: SharedNode,
 }
@@ -60,13 +61,16 @@ impl State {
 }
 
 impl Node {
-    fn recompute_tip_score(&mut self) {
-        self.score = self.state
+    fn new(state: State) -> Node {
+        let mut node: Node = Default::default();
+        node.state = state;
+        node.score = node.state
             .my_blobs
             .iter()
-            .map(|me| self.compute_blob_score(me))
+            .map(|me| node.compute_blob_score(me))
             .sum::<f64>()
             .max(0.0);
+        node
     }
 
     fn compute_blob_score(&self, me: &Player) -> f64 {
@@ -108,7 +112,7 @@ impl Strategy for MyStrategy {
         let me = &my_blobs[0];
 
         let speed = (me.speed() + me.max_speed()) / 2.0;
-        let skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
+        self.skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
 
         let mut should_reset_root = true;
         if let Some(ref root_me) = self.root.borrow().state.me() {
@@ -125,19 +129,12 @@ impl Strategy for MyStrategy {
                     );
                 }
             }
-            self.root = Rc::new(RefCell::new(Node {
-                state: State {
-                    tick,
-                    my_blobs: my_blobs.to_vec(),
-                    eaten: Rc::new(HashSet::new()),
-                },
-                parent: Weak::new(),
-                commands: vec![],
-                children: vec![],
-                score: 0.0,
-            }));
-            self.root.borrow_mut().recompute_tip_score();
-            self.add_nodes(&self.root, skips);
+            self.root = Rc::new(RefCell::new(Node::new(State {
+                tick,
+                my_blobs: my_blobs.to_vec(),
+                eaten: Rc::new(HashSet::new()),
+            })));
+            self.add_nodes(&self.root);
         }
 
         if self.commands.is_empty() {
@@ -161,7 +158,7 @@ impl Strategy for MyStrategy {
                     Command::from_point(command.point()),
                 );
             }
-            self.add_nodes(&self.root, skips);
+            self.add_nodes(&self.root);
         }
 
         command.set_point(self.commands.pop_front().expect("no commands left").point());
@@ -274,7 +271,7 @@ impl Strategy for MyStrategy {
                 });
             }
 
-            command.add_debug_message(format!("skips: {}", skips));
+            command.add_debug_message(format!("skips: {}", self.skips));
             command.add_debug_message(format!("queue: {}", self.commands.len()));
             command.add_debug_message(format!("tree: {}", tree_size));
             if command.split() {
@@ -294,7 +291,7 @@ impl MyStrategy {
         Default::default()
     }
 
-    fn add_nodes(&self, root: &SharedNode, skips: i64) {
+    fn add_nodes(&self, root: &SharedNode) {
         let power_blobs: Vec<_> = root.borrow()
             .state
             .my_blobs
@@ -312,19 +309,16 @@ impl MyStrategy {
                     {
                         break;
                     }
-                    let commands: Vec<_> = (0..skips)
+                    let commands: Vec<_> = (0..self.skips)
                         .map(|_i| {
                             Command::from_point(node.borrow().state.me().unwrap().point() + v)
                         })
                         .collect();
-                    let child = Rc::new(RefCell::new(Node {
-                        state: self.predict_states(&node.borrow().state, commands.as_ref(), skips),
-                        parent: Rc::downgrade(&node),
-                        commands,
-                        children: vec![],
-                        score: 0.0,
-                    }));
-                    child.borrow_mut().recompute_tip_score();
+                    let state = self.predict_states(&node.borrow().state, commands.as_ref());
+                    let mut child = Node::new(state);
+                    child.parent = Rc::downgrade(&node);
+                    child.commands = commands;
+                    let child = Rc::new(RefCell::new(child));
                     node.borrow_mut().children.push(Rc::clone(&child));
                     node = child;
                 }
@@ -350,7 +344,7 @@ impl MyStrategy {
     }
 
 
-    fn predict_states(&self, state: &State, commands: &[Command], _skips: i64) -> State {
+    fn predict_states(&self, state: &State, commands: &[Command]) -> State {
         let mut state = self.predict_state(state, &commands[0], true);
         for command in commands.iter().skip(1) {
             state = self.predict_state(&state, command, true);
