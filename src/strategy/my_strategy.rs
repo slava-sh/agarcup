@@ -10,6 +10,7 @@ use config::config;
 const MAX_LEADING_BLOBS: i64 = 3;
 const MAX_DEPTH: i64 = 15;
 const MIN_SKIPS: i64 = 5;
+const COMMAND_DISTANCE: f64 = 100.0;
 
 const SPEED_REWARD_FACTOR: f64 = 0.01;
 
@@ -149,7 +150,7 @@ impl MyStrategy {
             .collect(); // TODO: Sort by mass.
         for me in leading_blobs {
             for angle in DISCOVERY_ANGLES.iter() {
-                let v = Point::from_polar(config().speed_factor, me.angle() + angle);
+                let v = Point::from_polar(COMMAND_DISTANCE, me.angle() + angle);
                 let mut node = Rc::clone(&root);
                 for _depth in 0..MAX_DEPTH {
                     // TODO: Move away from me.
