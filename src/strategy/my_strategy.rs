@@ -212,16 +212,10 @@ impl MyStrategy {
     }
 
     fn predict_states(&self, state: &State, commands: &[Command]) -> State {
-        let mut state = self.predict_state(state, &commands[0], true);
-        for command in commands.iter().skip(1) {
-            state = self.predict_state(&state, command, true);
-        }
-        state
-    }
-
-    fn predict_state(&self, state: &State, command: &Command, _slow: bool) -> State {
         let mut mechanic = Mechanic::new(state);
-        mechanic.tick(command, &self.food, &self.ejections, &self.viruses);
+        for command in commands.iter() {
+            mechanic.tick(command, &self.food, &self.ejections, &self.viruses);
+        }
         mechanic.state
     }
 
