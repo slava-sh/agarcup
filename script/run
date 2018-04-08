@@ -1,4 +1,4 @@
 #!/bin/bash -e
 
 cd "$(dirname "$0")/.."
-target/latest
+./target/latest

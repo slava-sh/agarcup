@@ -8,7 +8,7 @@ rm -rf "$OUTPUT_DIR" "$OUTPUT_FILE"
 mkdir -p "$OUTPUT_DIR"
 cp -r src/* "$OUTPUT_DIR"
 
-VERSION="$(git rev-parse --short HEAD)"
+VERSION="$(git describe --always --dirty)"
 sed -i '' -- 's/"DEV"/"'"$VERSION"'"/g' "$OUTPUT_DIR/version.rs"
 
 cargo run -p expand-mods -- "$OUTPUT_DIR/main.rs" | rustfmt >"$OUTPUT_FILE"

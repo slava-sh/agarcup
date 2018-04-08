@@ -47,28 +47,89 @@ pub struct MyStrategy {
 #[derive(Debug, Default)]
 struct Node {
     state: State,
-    parent: Weak<RefCell<Node>>,
     commands: Vec<Command>,
+    parent: Weak<RefCell<Node>>,
     children: Vec<SharedNode>,
-    score: f64,
 }
 
 type SharedNode = Rc<RefCell<Node>>;
 
-impl Node {
-    fn new(state: State) -> Node {
-        let mut node: Node = Default::default();
-        node.state = state;
-        node.score = node.state
-            .my_blobs
-            .values()
-            .map(|me| node.compute_blob_score(me))
-            .sum::<f64>()
-            .max(0.0);
-        node
+impl Strategy for MyStrategy {
+    fn tick(
+        &mut self,
+        tick: i64,
+        my_blobs: Vec<Player>,
+        food: Vec<Food>,
+        ejections: Vec<Ejection>,
+        viruses: Vec<Virus>,
+        enemies: Vec<Player>,
+    ) -> Command {
+        self.state = State::new(tick, my_blobs);
+        self.food = food;
+        self.ejections = ejections;
+        self.viruses = viruses;
+        self.enemies = enemies;
+
+        let mut command = Command::new();
+        if tick == 0 {
+            command.add_debug_message(format!("running my strategy version {}", VERSION));
+        }
+
+        if self.commands.is_empty() {
+            let me = &self.state.my_blobs.values().next().unwrap(); // TODO: Move away from me.
+            let speed = (me.speed() + me.max_speed()) / 2.0;
+            self.skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
+
+            let mut child: Node = Default::default();
+            child.state = self.state.clone();
+            self.root = Rc::new(RefCell::new(child));
+            self.add_nodes(&self.root);
+
+            self.target = find_nodes(&self.root)
+                .into_iter()
+                .filter(|node| !Rc::ptr_eq(&node, &self.root))
+                .max_by(|a, b| {
+                    self.node_score(a).partial_cmp(&self.node_score(b)).expect(
+                        "incomparable scores",
+                    )
+                })
+                .expect("no nodes found");
+            self.next_root = self.next_root();
+            self.commands.extend(
+                self.next_root
+                    .borrow()
+                    .commands
+                    .iter()
+                    .cloned(),
+            );
+        }
+
+        command.set_point(self.commands.pop_front().expect("no commands left").point());
+
+        #[cfg(feature = "debug")]
+        {
+            self.debug(&mut command);
+        }
+
+        command
+    }
+}
+
+impl MyStrategy {
+    pub fn new() -> MyStrategy {
+        Default::default()
     }
 
-    fn compute_blob_score(&self, me: &Player) -> f64 {
+    fn node_score(&self, node: &SharedNode) -> f64 {
+        node.borrow()
+            .state
+            .my_blobs
+            .values()
+            .map(|me| self.blob_score(me))
+            .sum()
+    }
+
+    fn blob_score(&self, me: &Player) -> f64 {
         let mut score = 0.0;
         score += me.m();
 
@@ -89,69 +150,7 @@ impl Node {
             score += SAFETY_MARGIN_PENALTY;
         }
 
-        score.max(0.0)
-    }
-}
-
-impl Strategy for MyStrategy {
-    fn tick(
-        &mut self,
-        tick: i64,
-        my_blobs: Vec<Player>,
-        food: Vec<Food>,
-        ejections: Vec<Ejection>,
-        viruses: Vec<Virus>,
-        enemies: Vec<Player>,
-    ) -> Command {
-        let mut command = Command::new();
-        if tick == 0 {
-            command.add_debug_message(format!("running my strategy version {}", VERSION));
-        }
-
-        self.state = State::new(tick, my_blobs);
-        self.food = food;
-        self.ejections = ejections;
-        self.viruses = viruses;
-        self.enemies = enemies;
-
-        if self.commands.is_empty() {
-            let me = &self.state.my_blobs.values().next().unwrap(); // TODO: Move away from me.
-            let speed = (me.speed() + me.max_speed()) / 2.0;
-            self.skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
-
-            self.root = Rc::new(RefCell::new(Node::new(self.state.clone())));
-            self.add_nodes(&self.root);
-
-            self.target = find_nodes(&self.root)
-                .into_iter()
-                .filter(|node| !Rc::ptr_eq(&node, &self.root))
-                .max_by(|a, b| {
-                    a.borrow().score.partial_cmp(&b.borrow().score).expect(
-                        "incomparable scores",
-                    )
-                })
-                .expect("no nodes found");
-            self.next_root = self.next_root();
-            self.commands.extend(
-                self.next_root
-                    .borrow()
-                    .commands
-                    .iter()
-                    .cloned(),
-            );
-        }
-
-        command.set_point(self.commands.pop_front().expect("no commands left").point());
-
-        #[cfg(feature = "debug")] self.debug(&mut command);
-
-        command
-    }
-}
-
-impl MyStrategy {
-    pub fn new() -> MyStrategy {
-        Default::default()
+        score
     }
 
     fn add_nodes(&self, root: &SharedNode) {
@@ -191,11 +190,12 @@ impl MyStrategy {
                                 command
                             })
                             .collect();
-                        let state = self.predict_states(&node.borrow().state, commands.as_ref());
-                        let mut child = Node::new(state);
-                        child.parent = Rc::downgrade(&node);
-                        child.commands = commands;
-                        let child = Rc::new(RefCell::new(child));
+                        let child = Rc::new(RefCell::new(Node {
+                            state: self.predict_states(&node.borrow().state, commands.as_ref()),
+                            commands: commands,
+                            parent: Rc::downgrade(&node),
+                            children: Default::default(),
+                        }));
                         node.borrow_mut().children.push(Rc::clone(&child));
                         node = child;
                     }

@@ -52,6 +52,7 @@ impl Command {
     }
 
     #[cfg(feature = "debug")]
+    #[allow(dead_code)]
     pub fn set_pause(&mut self) {
         self.pause_ = true;
     }

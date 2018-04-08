@@ -1,4 +1,4 @@
 #!/bin/bash -e
 
 cd "$(dirname "$0")/.."
-cat test-game.txt | script/run
+cat test-game.txt | ./script/run

@@ -1,6 +1,7 @@
 use std::f64::consts::PI;
 use std::sync::{Mutex, MutexGuard};
 
+use lazy_static;
 use serde_json;
 
 pub fn config() -> &'static Config {
@@ -16,7 +17,7 @@ lazy_static! {
 
 pub fn init_config(config: Config) {
     *lock_initializer() = Some(config);
-    &*SINGLETON;
+    lazy_static::initialize(&SINGLETON);
 }
 
 fn lock_initializer<'mutex>() -> MutexGuard<'mutex, Option<Config>> {
