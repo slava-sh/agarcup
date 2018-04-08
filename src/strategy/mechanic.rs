@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
 use std::iter::{self, FromIterator};
-use std::rc::Rc;
 
 use models::*;
 use command::Command;
@@ -17,8 +16,8 @@ pub struct Mechanic {
 #[derive(Debug, Clone, Default)]
 pub struct State {
     pub tick: i64,
-    pub my_blobs: Rc<HashMap<PlayerBlobId, Player>>,
-    pub enemies: Rc<HashMap<PlayerBlobId, Player>>,
+    pub my_blobs: HashMap<PlayerBlobId, Player>,
+    pub enemies: HashMap<PlayerBlobId, Player>,
     pub eaten_food: HashSet<FoodId>,
     pub eaten_ejections: HashSet<EjectionId>,
     pub eaten_viruses: HashSet<VirusId>,
@@ -36,10 +35,10 @@ impl State {
         }
     }
 
-    fn players_from_vec(players: Vec<Player>) -> Rc<HashMap<PlayerBlobId, Player>> {
-        Rc::new(HashMap::from_iter(players.into_iter().map(
+    fn players_from_vec(players: Vec<Player>) -> HashMap<PlayerBlobId, Player> {
+        HashMap::from_iter(players.into_iter().map(
             |player| (player.id().clone(), player),
-        )))
+        ))
     }
 }
 
@@ -188,9 +187,9 @@ impl Mechanic {
                 while i < self.players.len() && self.players[i].player_id() != self.my_player_id {
                     i += 1;
                 }
-                let mut j = self.players.len();
-                while j > i && self.players[j].player_id() != self.my_player_id {
-                    i -= 1;
+                let mut j = i;
+                while j < self.players.len() && self.players[j].player_id() == self.my_player_id {
+                    j += 1;
                 }
                 &mut self.players[i..j]
             };

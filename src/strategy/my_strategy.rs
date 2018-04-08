@@ -9,7 +9,7 @@ use strategy::mechanic::{Mechanic, State};
 use version::VERSION;
 
 const MAX_LEADING_BLOBS: i64 = 3;
-const MAX_DEPTH: i64 = 15;
+const MAX_DEPTH: i64 = 10;
 const MIN_SKIPS: i64 = 5;
 const COMMAND_DISTANCE: f64 = 100.0;
 
@@ -38,7 +38,6 @@ pub struct MyStrategy {
     food: Vec<Food>,
     ejections: Vec<Ejection>,
     viruses: Vec<Virus>,
-    enemies: Vec<Player>,
 
     skips: i64,
     target: SharedNode,
@@ -227,7 +226,7 @@ impl MyStrategy {
     }
 
     fn infer_speeds(&mut self) {
-        for enemy in self.enemies.iter_mut() {
+        for enemy in self.state.enemies.values_mut() {
             let v = if let Some(last_pos) = self.enemy_pos.get(enemy.id()) {
                 enemy.point() - *last_pos
             } else {
@@ -237,7 +236,7 @@ impl MyStrategy {
             enemy.update_is_fast();
         }
         self.enemy_pos.clear();
-        for enemy in self.enemies.iter() {
+        for enemy in self.state.enemies.values() {
             self.enemy_pos.insert(enemy.id().clone(), enemy.point());
         }
     }
@@ -291,7 +290,7 @@ impl MyStrategy {
         let mut tree_size = 0;
         go(&self.root, &mut tree_size, command);
 
-        for enemy in self.enemies.iter() {
+        for enemy in self.state.enemies.values() {
             command.add_debug_circle(DebugCircle {
                 center: enemy.point() + enemy.v() * self.skips as f64,
                 radius: enemy.r(),
