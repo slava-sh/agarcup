@@ -349,8 +349,8 @@ fn split_now(me: &mut Player, max_fragment_id: &mut u32) -> Player {
         point_: me.point(),
         m_: new_m,
         r_: new_r,
-        v_: Some(Point::from_polar(config().split_start_speed, me.angle())),
-        is_fast_: Some(true),
+        v_: Point::from_polar(config().split_start_speed, me.angle()),
+        is_fast_: true,
         ttf_: config().ticks_til_fusion,
     };
 
@@ -472,8 +472,8 @@ fn burst_now(me: &mut Player, fragment_count: i64, max_fragment_id: &mut u32) ->
                 point_: me.point(),
                 m_: new_m,
                 r_: new_r,
-                v_: Some(Point::from_polar(config().burst_start_speed, angle)),
-                is_fast_: Some(true),
+                v_: Point::from_polar(config().burst_start_speed, angle),
+                is_fast_: true,
                 ttf_: config().ticks_til_fusion,
             }
         })

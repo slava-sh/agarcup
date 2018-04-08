@@ -242,8 +242,7 @@ impl MyStrategy {
                 Point::zero()
             };
             enemy.set_v(v);
-            let is_fast = enemy.speed() > enemy.max_speed();
-            enemy.set_fast(is_fast);
+            enemy.update_is_fast();
         }
         self.enemy_pos.clear();
         for enemy in self.enemies.iter() {

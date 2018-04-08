@@ -6,8 +6,8 @@ pub struct Player {
     pub point_: Point,
     pub m_: f64,
     pub r_: f64,
-    pub v_: Option<Point>,
-    pub is_fast_: Option<bool>,
+    pub v_: Point,
+    pub is_fast_: bool,
     pub ttf_: i64,
 }
 
@@ -52,14 +52,10 @@ impl Player {
     }
 
     pub fn can_see<Other: Circle>(&self, other: &Other) -> bool {
-        let p = if self.v_.is_some() {
-            self.point() + Point::from_polar(config().vis_shift, self.angle())
-        } else {
-            self.point() // Imprecise.
-        };
+        let vision_center = self.point() + Point::from_polar(config().vis_shift, self.angle());
         let vision_radius = self.r() * config().vis_factor; // TODO: Not always true.
         let max_dist = vision_radius + other.r();
-        other.point().qdist(p) < max_dist.powi(2)
+        other.point().qdist(vision_center) < max_dist.powi(2)
     }
 
     pub fn can_fuse(&self, other: &Player) -> bool {
@@ -100,19 +96,23 @@ impl Player {
     }
 
     pub fn v(&self) -> Point {
-        self.v_.expect("v not set")
+        self.v_
     }
 
     pub fn set_v(&mut self, v: Point) {
-        self.v_ = Some(v);
+        self.v_ = v;
     }
 
     pub fn is_fast(&self) -> bool {
-        self.is_fast_.expect("is_fast not set")
+        self.is_fast_
     }
 
     pub fn set_fast(&mut self, is_fast: bool) {
-        self.is_fast_ = Some(is_fast);
+        self.is_fast_ = is_fast;
+    }
+
+    pub fn update_is_fast(&mut self) {
+        self.is_fast_ = self.speed() > self.max_speed();
     }
 
     pub fn set_m(&mut self, m: f64) {
