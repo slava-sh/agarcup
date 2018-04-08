@@ -64,11 +64,10 @@ impl Strategy for MyStrategy {
         viruses: Vec<Virus>,
         enemies: Vec<Player>,
     ) -> Command {
-        self.state = State::new(tick, my_blobs);
+        self.state = State::new(tick, my_blobs, enemies);
         self.food = food;
         self.ejections = ejections;
         self.viruses = viruses;
-        self.enemies = enemies;
 
         self.infer_speeds();
 
@@ -105,10 +104,8 @@ impl MyStrategy {
             score += SMALL_BLOB_PENALTY;
         }
 
-        for enemy in self.enemies.iter() {
-            if enemy.m() > me.m() && !state.eaten_enemies.contains(&enemy.id()) &&
-                enemy.can_see(me)
-            {
+        for enemy in state.enemies.values() {
+            if enemy.m() > me.m() && enemy.can_see(me) {
                 let mut speed = enemy.max_speed();
                 if enemy.m() > me.m() * 2.0 {
                     speed = speed.max(config().split_start_speed);
@@ -224,13 +221,7 @@ impl MyStrategy {
 
     fn predict_state(&self, state: &State, command: &Command, _slow: bool) -> State {
         let mut mechanic = Mechanic::new(state);
-        mechanic.tick(
-            command,
-            &self.food,
-            &self.ejections,
-            &self.viruses,
-            &self.enemies,
-        );
+        mechanic.tick(command, &self.food, &self.ejections, &self.viruses);
         mechanic.state
     }
 
@@ -374,11 +365,14 @@ impl MyStrategy {
         mark_eaten(&self.food, &target_state.eaten_food, command);
         mark_eaten(&self.ejections, &target_state.eaten_ejections, command);
         mark_eaten(&self.viruses, &target_state.eaten_viruses, command);
-        mark_eaten(&self.enemies, &target_state.eaten_enemies, command);
+        // TODO: mark_eaten(&self.enemies, &target_state.eaten_enemies, command);
 
         command.add_debug_message(format!("skips: {}", self.skips));
         command.add_debug_message(format!("queue: {}", self.commands.len()));
         command.add_debug_message(format!("tree: {}", tree_size));
+        if self.target.borrow().state.my_blobs.is_empty() {
+            command.add_debug_message(format!("ABOUT TO DIE"));
+        }
         if self.target.borrow().state.my_blobs.len() > self.state.my_blobs.len() {
             command.add_debug_message(format!("ABOUT TO SPLIT"));
         }

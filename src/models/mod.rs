@@ -1,6 +1,6 @@
 pub use self::ejection::{Ejection, EjectionId};
 pub use self::food::{Food, FoodId};
-pub use self::player::{Player, PlayerBlobId};
+pub use self::player::{Player, PlayerBlobId, PlayerId, FragmentId};
 pub use self::point::{Point, HasPoint};
 pub use self::virus::{Virus, VirusId};
 
