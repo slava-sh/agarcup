@@ -11,4 +11,4 @@ else
 fi
 
 cargo build $BUILD_ARGS
-(cd ./target; ln -sf "$BINARY" ./latest)
+(cd target; ln -sf "$BINARY" latest)
