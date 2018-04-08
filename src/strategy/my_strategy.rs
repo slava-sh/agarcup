@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::f64::consts::PI;
 use std::rc::{Rc, Weak};
 
@@ -32,6 +32,7 @@ pub struct MyStrategy {
     root: SharedNode,
     next_root: SharedNode,
     commands: VecDeque<Command>,
+    enemy_pos: HashMap<PlayerBlobId, Point>,
 
     state: State,
     food: Vec<Food>,
@@ -69,6 +70,7 @@ impl Strategy for MyStrategy {
         self.viruses = viruses;
         self.enemies = enemies;
 
+        self.infer_speeds();
 
         if self.commands.is_empty() {
             self.add_commands();
@@ -169,6 +171,7 @@ impl MyStrategy {
         for me in leading_blobs.into_iter().take(MAX_LEADING_BLOBS as usize) {
             for angle in DISCOVERY_ANGLES.iter() {
                 let v = Point::from_polar(me.r() + COMMAND_DISTANCE, me.angle() + angle);
+                let v = Point::zero(); // TODO: DEBUG.
                 let mut node = Rc::clone(&root);
                 for _depth in 0..MAX_DEPTH {
                     let node_me: Player = match node.borrow().state.my_blobs.get(me.id()) {
@@ -231,6 +234,23 @@ impl MyStrategy {
         mechanic.state
     }
 
+    fn infer_speeds(&mut self) {
+        for enemy in self.enemies.iter_mut() {
+            let v = if let Some(last_pos) = self.enemy_pos.get(enemy.id()) {
+                enemy.point() - *last_pos
+            } else {
+                Point::zero()
+            };
+            enemy.set_v(v);
+            let is_fast = enemy.speed() > enemy.max_speed();
+            enemy.set_fast(is_fast);
+        }
+        self.enemy_pos.clear();
+        for enemy in self.enemies.iter() {
+            self.enemy_pos.insert(enemy.id().clone(), enemy.point());
+        }
+    }
+
     fn debug(&self, command: &mut Command) {
         if self.state.tick == 0 {
             command.add_debug_message(format!("running my strategy version {}", VERSION));
@@ -279,6 +299,15 @@ impl MyStrategy {
 
         let mut tree_size = 0;
         go(&self.root, &mut tree_size, command);
+
+        for enemy in self.enemies.iter() {
+            command.add_debug_circle(DebugCircle {
+                center: enemy.point() + enemy.v() * self.skips as f64,
+                radius: enemy.r(),
+                color: String::from("red"),
+                opacity: 0.1,
+            });
+        }
 
         for me in self.next_root.borrow().state.my_blobs.values() {
             command.add_debug_circle(DebugCircle {
