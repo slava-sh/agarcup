@@ -1,6 +1,14 @@
 #!/bin/bash -e
 
 cd "$(dirname "$0")/.."
-OUTPUT_FILE="submission.zip"
-zip "$OUTPUT_FILE" src Cargo.toml
-echo "$OUTPUT_FILE created"
+
+OUTPUT_DIR="./target/submission"
+rm -rf "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR"
+cp -r ./src "$OUTPUT_DIR"
+
+VERSION="$(git rev-parse --short HEAD)"
+sed -i '' -- 's/"DEV"/"'"$VERSION"'"/g' "$OUTPUT_DIR/src/version.rs"
+
+(cd "$OUTPUT_DIR"; zip -r submission.zip .)
+echo "$OUTPUT_DIR/submission.zip created"

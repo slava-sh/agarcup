@@ -21,6 +21,7 @@ mod config;
 mod interactor;
 mod models;
 mod strategy;
+mod version;
 
 fn main() {
     #[cfg(feature = "debug")] init_logging();

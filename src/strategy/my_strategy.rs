@@ -3,9 +3,10 @@ use std::collections::{HashSet, VecDeque};
 use std::f64::consts::PI;
 use std::rc::{Rc, Weak};
 
+use config::config;
 use strategy::*;
 use strategy::mechanic::{Mechanic, State};
-use config::config;
+use version::VERSION;
 
 const MAX_LEADING_BLOBS: i64 = 3;
 const MAX_DEPTH: i64 = 15;
@@ -103,6 +104,9 @@ impl Strategy for MyStrategy {
         enemies: Vec<Player>,
     ) -> Command {
         let mut command = Command::new();
+        if tick == 0 {
+            command.add_debug_message(format!("running my strategy version {}", VERSION));
+        }
 
         self.state = State::new(tick, my_blobs);
         self.food = food;
