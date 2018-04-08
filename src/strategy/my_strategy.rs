@@ -350,6 +350,9 @@ impl MyStrategy {
         command.add_debug_message(format!("skips: {}", self.skips));
         command.add_debug_message(format!("queue: {}", self.commands.len()));
         command.add_debug_message(format!("tree: {}", tree_size));
+        if self.target.borrow().state.my_blobs.len() > self.state.my_blobs.len() {
+            command.add_debug_message(format!("ABOUT TO SPLIT"));
+        }
         if command.split() {
             command.add_debug_message(format!("SPLIT"));
         }
