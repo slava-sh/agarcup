@@ -14,10 +14,9 @@ const MIN_SKIPS: i64 = 5;
 const COMMAND_DISTANCE: f64 = 100.0;
 
 const SPEED_REWARD_FACTOR: f64 = 0.01;
-
+const DANGER_PENALTY_FACTOR: f64 = -100.0;
 const SAFETY_MARGIN_FACTOR: f64 = 2.5;
 const SAFETY_MARGIN_PENALTY: f64 = -3.0;
-
 const SMALL_BLOB_PENALTY: f64 = -10.0;
 const MAX_SMALL_BLOB_MASS: f64 = 85.0;
 
@@ -121,15 +120,15 @@ impl MyStrategy {
     }
 
     fn node_score(&self, node: &SharedNode) -> f64 {
-        node.borrow()
-            .state
+        let ref state = node.borrow().state;
+        state
             .my_blobs
             .values()
-            .map(|me| self.blob_score(me))
+            .map(|me| self.blob_score(me, state))
             .sum()
     }
 
-    fn blob_score(&self, me: &Player) -> f64 {
+    fn blob_score(&self, me: &Player, state: &State) -> f64 {
         let mut score = 0.0;
         score += me.m();
 
@@ -139,7 +138,19 @@ impl MyStrategy {
             score += SMALL_BLOB_PENALTY;
         }
 
-        // TODO: safety.
+        for enemy in self.enemies.iter() {
+            if enemy.m() > me.m() && !state.eaten_enemies.contains(&enemy.id()) &&
+                enemy.can_see(me)
+            {
+                let mut speed = enemy.max_speed();
+                if enemy.m() > me.m() * 2.0 {
+                    speed = speed.max(config().split_start_speed);
+                }
+                let dist = me.point().dist(enemy.point());
+                score += DANGER_PENALTY_FACTOR / (dist / speed).max(1.0);
+            }
+        }
+
         // TODO: global goal.
 
         let safety_margin = me.r() * SAFETY_MARGIN_FACTOR;
@@ -154,21 +165,20 @@ impl MyStrategy {
     }
 
     fn add_nodes(&self, root: &SharedNode) {
-        let leading_blobs: Vec<_> = root.borrow()
-            .state
-            .my_blobs
-            .values()
-            .take(MAX_LEADING_BLOBS as usize)
-            .cloned()
-            .collect(); // TODO: Sort by mass.
-        let fragment_count = root.borrow().state.my_blobs.len() as i64;
-        for me in leading_blobs {
+        let mut leading_blobs: Vec<_> = root.borrow().state.my_blobs.values().cloned().collect();
+        leading_blobs.sort_by(|a, b| {
+            a.m()
+                .partial_cmp(&b.m())
+                .expect("incomparable mass")
+                .reverse()
+                .then_with(|| a.fragment_id().cmp(&b.fragment_id()))
+        });
+        for me in leading_blobs.into_iter().take(MAX_LEADING_BLOBS as usize) {
             for angle in DISCOVERY_ANGLES.iter() {
                 let v = Point::from_polar(COMMAND_DISTANCE, me.angle() + angle);
                 let mut node = Rc::clone(&root);
                 for _depth in 0..MAX_DEPTH {
-                    // TODO: Move away from me.
-                    let node_me: Player = match node.borrow().state.my_blobs.values().next() {
+                    let node_me: Player = match node.borrow().state.my_blobs.get(me.id()) {
                         Some(node_me) => node_me.clone(),
                         None => break,
                     };
@@ -176,10 +186,7 @@ impl MyStrategy {
                         break;
                     }
                     let commands: Vec<_> = (0..self.skips)
-                        .map(|i| {
-                            let mut command = Command::from_point(node_me.point() + v);
-                            command
-                        })
+                        .map(|_| Command::from_point(node_me.point() + v))
                         .collect();
                     let child = Rc::new(RefCell::new(Node {
                         state: self.predict_states(&node.borrow().state, commands.as_ref()),
@@ -234,17 +241,21 @@ impl MyStrategy {
     #[cfg(feature = "debug")]
     fn debug(&self, command: &mut Command) {
         fn go(node: &SharedNode, tree_size: &mut i64, command: &mut Command) {
+            let node = node.borrow();
+            const MAX_BLOBS_FOR_VERBOSE_DEBUG: usize = 3;
             *tree_size = *tree_size + 1;
-            for me in node.borrow().state.my_blobs.values() {
-                command.add_debug_circle(DebugCircle {
-                    center: me.point(),
-                    radius: 1.0,
-                    color: String::from("black"),
-                    opacity: 0.3,
-                });
+            if node.state.my_blobs.len() <= MAX_BLOBS_FOR_VERBOSE_DEBUG {
+                for me in node.state.my_blobs.values() {
+                    command.add_debug_circle(DebugCircle {
+                        center: me.point(),
+                        radius: 1.0,
+                        color: String::from("black"),
+                        opacity: 0.3,
+                    });
+                }
             }
-            for child in node.borrow().children.iter() {
-                for (n, c) in node.borrow().state.my_blobs.values().zip(
+            for child in node.children.iter() {
+                for (n, c) in node.state.my_blobs.values().zip(
                     child
                         .borrow()
                         .state
@@ -252,12 +263,14 @@ impl MyStrategy {
                         .values(),
                 )
                 {
-                    command.add_debug_line(DebugLine {
-                        a: n.point(),
-                        b: c.point(),
-                        color: String::from("black"),
-                        opacity: 0.3,
-                    });
+                    if node.state.my_blobs.len() <= MAX_BLOBS_FOR_VERBOSE_DEBUG {
+                        command.add_debug_line(DebugLine {
+                            a: n.point(),
+                            b: c.point(),
+                            color: String::from("black"),
+                            opacity: 0.3,
+                        });
+                    }
                 }
                 go(child, tree_size, command);
             }
