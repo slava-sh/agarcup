@@ -11,5 +11,5 @@ cp -r src/* "$OUTPUT_DIR"
 VERSION="$(git rev-parse --short HEAD)"
 sed -i '' -- 's/"DEV"/"'"$VERSION"'"/g' "$OUTPUT_DIR/version.rs"
 
-cargo run -p expand-mods -- "$OUTPUT_DIR/main.rs" >"$OUTPUT_FILE"
+cargo run -p expand-mods -- "$OUTPUT_DIR/main.rs" | rustfmt >"$OUTPUT_FILE"
 echo "Created $OUTPUT_FILE"
