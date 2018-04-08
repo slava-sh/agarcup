@@ -163,42 +163,32 @@ impl MyStrategy {
             .collect(); // TODO: Sort by mass.
         let fragment_count = root.borrow().state.my_blobs.len() as i64;
         for me in leading_blobs {
-            let splits = if !self.enemies.is_empty() && me.can_split(fragment_count) {
-                vec![false, true]
-            } else {
-                vec![false]
-            };
             for angle in DISCOVERY_ANGLES.iter() {
-                for split in splits.iter() {
-                    let v = Point::from_polar(COMMAND_DISTANCE, me.angle() + angle);
-                    let mut node = Rc::clone(&root);
-                    for _depth in 0..MAX_DEPTH {
-                        // TODO: Move away from me.
-                        let node_me: Player = match node.borrow().state.my_blobs.values().next() {
-                            Some(node_me) => node_me.clone(),
-                            None => break,
-                        };
-                        if !me.can_see(&node_me) {
-                            break;
-                        }
-                        let commands: Vec<_> = (0..self.skips)
-                            .map(|i| {
-                                let mut command = Command::from_point(node_me.point() + v);
-                                if *split && i == 0 {
-                                    command.set_split()
-                                }
-                                command
-                            })
-                            .collect();
-                        let child = Rc::new(RefCell::new(Node {
-                            state: self.predict_states(&node.borrow().state, commands.as_ref()),
-                            commands: commands,
-                            parent: Rc::downgrade(&node),
-                            children: Default::default(),
-                        }));
-                        node.borrow_mut().children.push(Rc::clone(&child));
-                        node = child;
+                let v = Point::from_polar(COMMAND_DISTANCE, me.angle() + angle);
+                let mut node = Rc::clone(&root);
+                for _depth in 0..MAX_DEPTH {
+                    // TODO: Move away from me.
+                    let node_me: Player = match node.borrow().state.my_blobs.values().next() {
+                        Some(node_me) => node_me.clone(),
+                        None => break,
+                    };
+                    if !me.can_see(&node_me) {
+                        break;
                     }
+                    let commands: Vec<_> = (0..self.skips)
+                        .map(|i| {
+                            let mut command = Command::from_point(node_me.point() + v);
+                            command
+                        })
+                        .collect();
+                    let child = Rc::new(RefCell::new(Node {
+                        state: self.predict_states(&node.borrow().state, commands.as_ref()),
+                        commands: commands,
+                        parent: Rc::downgrade(&node),
+                        children: Default::default(),
+                    }));
+                    node.borrow_mut().children.push(Rc::clone(&child));
+                    node = child;
                 }
             }
         }
