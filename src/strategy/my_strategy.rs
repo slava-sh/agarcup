@@ -175,7 +175,7 @@ impl MyStrategy {
         });
         for me in leading_blobs.into_iter().take(MAX_LEADING_BLOBS as usize) {
             for angle in DISCOVERY_ANGLES.iter() {
-                let v = Point::from_polar(COMMAND_DISTANCE, me.angle() + angle);
+                let v = Point::from_polar(me.r() + COMMAND_DISTANCE, me.angle() + angle);
                 let mut node = Rc::clone(&root);
                 for _depth in 0..MAX_DEPTH {
                     let node_me: Player = match node.borrow().state.my_blobs.get(me.id()) {
