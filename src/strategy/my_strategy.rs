@@ -69,47 +69,12 @@ impl Strategy for MyStrategy {
         self.viruses = viruses;
         self.enemies = enemies;
 
-        let mut command = Command::new();
-        if tick == 0 {
-            command.add_debug_message(format!("running my strategy version {}", VERSION));
-        }
 
         if self.commands.is_empty() {
-            let me = &self.state.my_blobs.values().next().unwrap(); // TODO: Move away from me.
-            let speed = (me.speed() + me.max_speed()) / 2.0;
-            self.skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
-
-            let mut child: Node = Default::default();
-            child.state = self.state.clone();
-            self.root = Rc::new(RefCell::new(child));
-            self.add_nodes(&self.root);
-
-            self.target = find_nodes(&self.root)
-                .into_iter()
-                .filter(|node| !Rc::ptr_eq(&node, &self.root))
-                .max_by(|a, b| {
-                    self.node_score(a).partial_cmp(&self.node_score(b)).expect(
-                        "incomparable scores",
-                    )
-                })
-                .expect("no nodes found");
-            self.next_root = self.next_root();
-            self.commands.extend(
-                self.next_root
-                    .borrow()
-                    .commands
-                    .iter()
-                    .cloned(),
-            );
+            self.add_commands();
         }
-
-        command.set_point(self.commands.pop_front().expect("no commands left").point());
-
-        #[cfg(feature = "debug")]
-        {
-            self.debug(&mut command);
-        }
-
+        let mut command = self.commands.pop_front().expect("no commands left");
+        self.debug(&mut command);
         command
     }
 }
@@ -162,6 +127,34 @@ impl MyStrategy {
         }
 
         score
+    }
+
+    fn add_commands(&mut self) {
+        let me = &self.state.my_blobs.values().next().unwrap(); // TODO: Move away from me.
+        let speed = (me.speed() + me.max_speed()) / 2.0;
+        self.skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
+
+        self.root = Default::default();
+        self.root.borrow_mut().state = self.state.clone();
+        self.add_nodes(&self.root);
+
+        self.target = find_nodes(&self.root)
+            .into_iter()
+            .filter(|node| !Rc::ptr_eq(&node, &self.root))
+            .max_by(|a, b| {
+                self.node_score(a).partial_cmp(&self.node_score(b)).expect(
+                    "incomparable scores",
+                )
+            })
+            .expect("no nodes found");
+        self.next_root = self.next_root();
+        self.commands.extend(
+            self.next_root
+                .borrow()
+                .commands
+                .iter()
+                .cloned(),
+        );
     }
 
     fn add_nodes(&self, root: &SharedNode) {
@@ -238,8 +231,16 @@ impl MyStrategy {
         mechanic.state
     }
 
-    #[cfg(feature = "debug")]
     fn debug(&self, command: &mut Command) {
+        if self.state.tick == 0 {
+            command.add_debug_message(format!("running my strategy version {}", VERSION));
+        }
+
+        #[cfg(not(feature = "debug"))]
+        {
+            return;
+        }
+
         fn go(node: &SharedNode, tree_size: &mut i64, command: &mut Command) {
             let node = node.borrow();
             const MAX_BLOBS_FOR_VERBOSE_DEBUG: usize = 3;
@@ -328,7 +329,7 @@ impl MyStrategy {
             node = parent;
         }
 
-        fn mark_eaten<B: Blob>(blobs: &Vec<B>, eaten: &HashSet<B::Id>, command: &mut Command) {
+        fn mark_eaten<B: Blob>(blobs: &[B], eaten: &HashSet<B::Id>, command: &mut Command) {
             for blob in blobs.iter() {
                 if eaten.contains(blob.id()) {
                     command.add_debug_circle(DebugCircle {

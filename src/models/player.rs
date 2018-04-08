@@ -55,7 +55,7 @@ impl Player {
         let p = if self.v_.is_some() {
             self.point() + Point::from_polar(config().vis_shift, self.angle())
         } else {
-            self.point()
+            self.point() // Imprecise.
         };
         let vision_radius = self.r() * config().vis_factor; // TODO: Not always true.
         let max_dist = vision_radius + other.r();
