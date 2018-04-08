@@ -27,7 +27,7 @@ impl Blob for Ejection {
         &self.id_
     }
 
-    fn m(&self) -> f64 {
+    fn m(&self) -> Mass {
         config().ejection_mass
     }
 }

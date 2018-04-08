@@ -4,7 +4,7 @@ use models::*;
 pub struct Virus {
     pub id_: VirusId,
     pub point_: Point,
-    pub m_: f64,
+    pub m_: Mass,
 }
 
 pub type VirusId = u64;
@@ -28,7 +28,7 @@ impl Blob for Virus {
         &self.id_
     }
 
-    fn m(&self) -> f64 {
+    fn m(&self) -> Mass {
         self.m_
     }
 }

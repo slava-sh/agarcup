@@ -4,7 +4,7 @@ use models::*;
 pub struct Player {
     pub id_: PlayerBlobId,
     pub point_: Point,
-    pub m_: f64,
+    pub m_: Mass,
     pub r_: f64,
     pub v_: Point,
     pub is_fast_: bool,
@@ -39,7 +39,7 @@ impl Blob for Player {
         &self.id_
     }
 
-    fn m(&self) -> f64 {
+    fn m(&self) -> Mass {
         self.m_
     }
 }
@@ -78,7 +78,7 @@ impl Player {
         Player::rest_fragment_count(yet_cnt) > 0 && self.m() > config().min_split_mass
     }
 
-    pub fn max_speed(&self) -> f64 {
+    pub fn max_speed(&self) -> Speed {
         config().speed_factor / self.m().sqrt()
     }
 
@@ -86,11 +86,11 @@ impl Player {
         self.m() > config().min_shrink_mass
     }
 
-    pub fn speed(&self) -> f64 {
+    pub fn speed(&self) -> Speed {
         self.v().length()
     }
 
-    pub fn angle(&self) -> f64 {
+    pub fn angle(&self) -> Angle {
         self.v().angle()
     }
 
@@ -118,7 +118,7 @@ impl Player {
         self.is_fast_ = self.speed() > self.max_speed();
     }
 
-    pub fn set_m(&mut self, m: f64) {
+    pub fn set_m(&mut self, m: Mass) {
         self.m_ = m;
     }
 

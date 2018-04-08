@@ -1,5 +1,5 @@
-use models::{Point, HasPoint};
 use config::config;
+use models::*;
 
 #[derive(Debug, Clone, Default)]
 pub struct Command {

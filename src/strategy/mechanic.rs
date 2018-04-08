@@ -509,7 +509,7 @@ fn burst_now(
     let new_fragment_count = ((player.m() / config().min_burst_mass).floor() as i64 - 1)
         .min(Player::rest_fragment_count(fragment_count));
 
-    let new_m = player.m() / (new_fragment_count + 1) as f64;
+    let new_m = player.m() / (new_fragment_count + 1) as Mass;
     let new_r = mass_to_radius(new_m);
 
     let new_blobs = (0..new_fragment_count)
@@ -547,6 +547,6 @@ fn burst_now(
     new_blobs
 }
 
-fn mass_to_radius(mass: f64) -> f64 {
+fn mass_to_radius(mass: Mass) -> f64 {
     config().radius_factor * mass.sqrt()
 }

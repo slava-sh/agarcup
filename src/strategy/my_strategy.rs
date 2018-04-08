@@ -21,7 +21,7 @@ const SMALL_BLOB_PENALTY: f64 = -10.0;
 const MAX_SMALL_BLOB_MASS: f64 = 85.0;
 
 lazy_static! {
-    static ref DISCOVERY_ANGLES: Vec<f64> = {
+    static ref DISCOVERY_ANGLES: Vec<Angle> = {
         let n = 4 * 3;
         (0..n).map(|i| 2.0 * PI * i as f64 / n as f64).collect()
     };
@@ -53,6 +53,7 @@ struct Node {
 }
 
 type SharedNode = Rc<RefCell<Node>>;
+type Score = f64;
 
 impl Strategy for MyStrategy {
     fn tick(
@@ -85,7 +86,7 @@ impl MyStrategy {
         Default::default()
     }
 
-    fn node_score(&self, node: &SharedNode) -> f64 {
+    fn node_score(&self, node: &SharedNode) -> Score {
         let ref state = node.borrow().state;
         state
             .my_blobs
@@ -94,7 +95,7 @@ impl MyStrategy {
             .sum()
     }
 
-    fn blob_score(&self, me: &Player, state: &State) -> f64 {
+    fn blob_score(&self, me: &Player, state: &State) -> Score {
         let mut score = 0.0;
         score += me.m();
 

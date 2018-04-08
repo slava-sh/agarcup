@@ -2,11 +2,13 @@ use time::precise_time_s;
 
 use strategy::*;
 
-const AVG_TICK_TIME_SECS: f64 = 150.0 / 7500.0;
+type Seconds = f64;
+
+const AVG_TICK_TIME_SECS: Seconds = 150.0 / 7500.0;
 
 pub struct TimingWrapper<S: Strategy> {
     strategy: S,
-    total: f64,
+    total: Seconds,
 }
 
 impl<S: Strategy> TimingWrapper<S> {
@@ -38,7 +40,7 @@ impl<S: Strategy> Strategy for TimingWrapper<S> {
             enemies,
         );
         self.total += precise_time_s() - start;
-        let expected = AVG_TICK_TIME_SECS * (tick + 1) as f64;
+        let expected = AVG_TICK_TIME_SECS * (tick + 1) as Seconds;
         command.add_debug_message(format!("total: {:.2}", self.total));
         command.add_debug_message(format!("budget: {:.2}", expected - self.total));
         command

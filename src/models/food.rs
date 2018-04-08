@@ -31,7 +31,7 @@ impl Blob for Food {
         &self.id_
     }
 
-    fn m(&self) -> f64 {
+    fn m(&self) -> Mass {
         config().food_mass
     }
 }
