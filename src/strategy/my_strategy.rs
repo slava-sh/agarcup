@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::f64::consts::PI;
 use std::rc::{Rc, Weak};
 
@@ -68,14 +68,15 @@ impl Strategy for MyStrategy {
         self.food = food;
         self.ejections = ejections;
         self.viruses = viruses;
-
         self.infer_speeds();
-
         if self.commands.is_empty() {
             self.add_commands();
         }
         let mut command = self.commands.pop_front().expect("no commands left");
-        self.debug(&mut command);
+        if self.state.tick == 0 {
+            command.add_debug_message(format!("running my strategy version {}", VERSION));
+        }
+        #[cfg(feature = "debug")] self.debug(&mut command);
         command
     }
 }
@@ -243,15 +244,9 @@ impl MyStrategy {
         }
     }
 
+    #[cfg(feature = "debug")]
     fn debug(&self, command: &mut Command) {
-        if self.state.tick == 0 {
-            command.add_debug_message(format!("running my strategy version {}", VERSION));
-        }
 
-        #[cfg(not(feature = "debug"))]
-        {
-            return;
-        }
 
         fn go(node: &SharedNode, tree_size: &mut i64, command: &mut Command) {
             let node = node.borrow();
@@ -350,6 +345,7 @@ impl MyStrategy {
             node = parent;
         }
 
+        use std::collections::HashSet;
         fn mark_eaten<B: Blob>(blobs: &[B], eaten: &HashSet<B::Id>, command: &mut Command) {
             for blob in blobs.iter() {
                 if eaten.contains(blob.id()) {
