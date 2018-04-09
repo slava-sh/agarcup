@@ -149,23 +149,13 @@ impl Mechanic {
     }
 
     fn eat_all(&mut self, food: &[Food], ejections: &[Ejection]) {
-        eat(food, &mut self.state.eaten_food, &mut self.players);
-        eat(
+        eat_food(food, &mut self.state.eaten_food, &mut self.players);
+        eat_food(
             ejections,
             &mut self.state.eaten_ejections,
             &mut self.players,
         );
-
-        //eat(enemies, &mut self.state.eaten_enemies, &mut self.my_blobs);
-        //for enemy in enemies.iter() {
-        //    if self.state.eaten_enemies.contains(enemy.id()) {
-        //        continue;
-        //    }
-        //    if let Some(i) = nearest_player(enemy, |me| enemy.can_eat(me), &self.my_blobs) {
-        //        // TODO: Allow an enemy to eat multiple blobs.
-        //        self.my_blobs.swap_remove(i);
-        //    }
-        //}
+        eat_players(&mut self.players);
     }
 
     fn fuse_players(&mut self) {
@@ -413,18 +403,44 @@ fn shrink_now(player: &mut Player) {
     player.set_r(mass_to_radius(new_m));
 }
 
-fn eat<F: Blob>(food: &[F], eaten: &mut HashSet<F::Id>, players: &mut [Player]) {
+fn eat_food<F: Blob>(food: &[F], eaten: &mut HashSet<F::Id>, players: &mut [Player]) {
     for blob in food.iter() {
         if eaten.contains(blob.id()) {
             continue;
         }
-        if let Some(i) = nearest_player(blob, |player| player.can_eat(blob), players.iter()) {
+        if let Some(i) = nearest_player(blob, |player| player.can_eat_blob(blob), players.iter()) {
+            player_eat(&mut players[i], blob);
             eaten.insert(blob.id().clone());
-            let ref mut player = players[i];
-            let new_m = player.m() + blob.m();
-            player.set_m(new_m);
         }
     }
+}
+
+fn eat_players(players: &mut [Player]) {
+    let mut i = 0;
+    while i < players.len() {
+        if let Some(j) = nearest_player(
+            &players[i],
+            |eater| eater.can_eat_player(&players[i]),
+            players.iter(),
+        )
+        {
+            let (player, eater) = if i < j {
+                let (left, right) = players.split_at_mut(j);
+                (&left[i], &mut right[0])
+            } else {
+                let (left, right) = players.split_at_mut(i);
+                (&right[0], &mut left[j])
+            };
+            player_eat(eater, player);
+        } else {
+            i += 1;
+        }
+    }
+}
+
+fn player_eat<F: Blob>(player: &mut Player, food: &F) {
+    let new_m = player.m() + food.m();
+    player.set_m(new_m);
 }
 
 fn nearest_player<'a, T, P, U>(target: &T, predicate: P, players: U) -> Option<usize>

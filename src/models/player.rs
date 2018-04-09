@@ -45,7 +45,11 @@ impl Blob for Player {
 }
 
 impl Player {
-    pub fn can_eat<Other: Blob>(&self, other: &Other) -> bool {
+    pub fn can_eat_player(&self, other: &Player) -> bool {
+        self.player_id() != other.player_id() && self.can_eat_blob(other)
+    }
+
+    pub fn can_eat_blob<Other: Blob>(&self, other: &Other) -> bool {
         if !(self.m() > other.m() * config().mass_eat_factor) {
             return false;
         }
