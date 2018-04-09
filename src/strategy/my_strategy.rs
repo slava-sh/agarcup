@@ -280,8 +280,8 @@ impl MyStrategy {
                         command.add_debug_line(DebugLine {
                             a: n.point(),
                             b: c.point(),
-                            color: String::from("black"),
-                            opacity: 0.3,
+                            color: String::from("lightGray"),
+                            opacity: 1.0,
                         });
                     }
                 }
@@ -372,6 +372,7 @@ impl MyStrategy {
         command.add_debug_message(format!("skips: {}", self.skips));
         command.add_debug_message(format!("queue: {}", self.commands.len()));
         command.add_debug_message(format!("tree: {}", tree_size));
+        command.add_debug_message(format!("enemies: {}", self.state.enemies.len()));
         if self.target.borrow().state.my_blobs.is_empty() {
             command.add_debug_message(format!("ABOUT TO DIE"));
         }
