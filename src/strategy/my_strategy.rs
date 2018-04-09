@@ -135,7 +135,10 @@ impl MyStrategy {
 
         self.root = Default::default();
         self.root.borrow_mut().state = self.state.clone();
-        self.add_nodes(&self.root);
+        self.add_nodes(&self.root, false);
+        if !self.state.enemies.is_empty() {
+            self.add_nodes(&self.root, true);
+        }
 
         self.target = find_nodes(&self.root)
             .into_iter()
@@ -156,7 +159,7 @@ impl MyStrategy {
         );
     }
 
-    fn add_nodes(&self, root: &SharedNode) {
+    fn add_nodes(&self, root: &SharedNode, split: bool) {
         let mut leading_blobs: Vec<_> = root.borrow().state.my_blobs.values().cloned().collect();
         leading_blobs.sort_by(|a, b| {
             a.m()
@@ -168,7 +171,6 @@ impl MyStrategy {
         for me in leading_blobs.into_iter().take(MAX_LEADING_BLOBS as usize) {
             for angle in DISCOVERY_ANGLES.iter() {
                 let v = Point::from_polar(me.r() + COMMAND_DISTANCE, me.angle() + angle);
-                let v = Point::zero(); // TODO: DEBUG.
                 let mut node = Rc::clone(&root);
                 for _depth in 0..MAX_DEPTH {
                     let node_me: Player = match node.borrow().state.my_blobs.get(me.id()) {
@@ -179,7 +181,13 @@ impl MyStrategy {
                         break;
                     }
                     let commands: Vec<_> = (0..self.skips)
-                        .map(|_| Command::from_point(node_me.point() + v))
+                        .map(|i| {
+                            let mut command = Command::from_point(node_me.point() + v);
+                            if split && i == 0 {
+                                command.set_split();
+                            };
+                            command
+                        })
                         .collect();
                     let child = Rc::new(RefCell::new(Node {
                         state: self.predict_states(&node.borrow().state, commands.as_ref()),
