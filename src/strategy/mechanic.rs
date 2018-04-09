@@ -68,7 +68,7 @@ impl Mechanic {
             .cloned()
             .collect();
 
-        // Following the vendor mechanic.h.
+        // Following vendor/miniaicups/agario/local_runner/mechanic.h
         self.apply_strategies(command);
         self.state.tick += 1;
         self.move_moveables();
@@ -201,8 +201,8 @@ impl Mechanic {
                         }
                     }
                     if fused {
-                        idle = false;
                         update_by_mass(&mut fragments[i]);
+                        idle = false;
                     }
                 }
                 if idle {
@@ -416,7 +416,7 @@ fn eat_food<F: Blob>(food: &[F], eaten: &mut HashSet<F::Id>, players: &mut [Play
     }
 }
 
-fn eat_players(players: &mut [Player]) {
+fn eat_players(players: &mut Vec<Player>) {
     let mut i = 0;
     while i < players.len() {
         if let Some(j) = nearest_player(
@@ -425,14 +425,17 @@ fn eat_players(players: &mut [Player]) {
             players.iter(),
         )
         {
-            let (player, eater) = if i < j {
-                let (left, right) = players.split_at_mut(j);
-                (&left[i], &mut right[0])
-            } else {
-                let (left, right) = players.split_at_mut(i);
-                (&right[0], &mut left[j])
-            };
-            player_eat(eater, player);
+            {
+                let (player, eater) = if i < j {
+                    let (left, right) = players.split_at_mut(j);
+                    (&left[i], &mut right[0])
+                } else {
+                    let (left, right) = players.split_at_mut(i);
+                    (&right[0], &mut left[j])
+                };
+                player_eat(eater, player);
+            }
+            players.swap_remove(i);
         } else {
             i += 1;
         }
