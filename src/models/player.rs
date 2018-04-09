@@ -49,12 +49,12 @@ impl Player {
         self.player_id() != other.player_id() && self.can_eat_blob(other)
     }
 
-    pub fn can_eat_blob<Other: Blob>(&self, other: &Other) -> bool {
-        if !(self.m() > other.m() * config().mass_eat_factor) {
+    pub fn can_eat_blob<F: Blob>(&self, food: &F) -> bool {
+        if !(self.m() > food.m() * config().mass_eat_factor) {
             return false;
         }
-        let dist = self.point().dist(other.point());
-        let min_r = dist - other.r() + other.r() * 2.0 * config().diam_eat_factor;
+        let dist = self.point().dist(food.point());
+        let min_r = dist - food.r() + food.r() * 2.0 * config().diam_eat_factor;
         min_r < self.r()
     }
 

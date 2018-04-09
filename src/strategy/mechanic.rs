@@ -130,7 +130,7 @@ impl Mechanic {
         if command.split() {
             let new_blobs = {
                 let my_player_id = self.my_player_id;
-                let my_blobs: Vec<_> = self.players
+                let ref mut my_blobs: Vec<_> = self.players
                     .iter_mut()
                     .filter(|player| player.player_id() == my_player_id)
                     .collect();
@@ -244,6 +244,7 @@ impl Mechanic {
                     burst_now(me, fragment_count, &mut max_fragment_id)
                 };
                 fragment_count += new_blobs.len() as i64;
+                // TODO: Don't burst new_blobs on this tick.
                 self.players.extend(new_blobs);
                 self.state.eaten_viruses.insert(virus.id().clone());
             }
@@ -347,7 +348,7 @@ fn collision_calc(a: &mut Player, b: &mut Player) {
     b.set_v(v);
 }
 
-fn split_fragments(mut fragments: Vec<&mut Player>) -> Vec<Player> {
+fn split_fragments(fragments: &mut [&mut Player]) -> Vec<Player> {
     fragments.sort_by(|a, b| {
         a.m()
             .partial_cmp(&b.m())
