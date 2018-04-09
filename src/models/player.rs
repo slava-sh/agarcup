@@ -60,8 +60,8 @@ impl Player {
 
     pub fn can_see<Other: Circle>(&self, other: &Other) -> bool {
         let vision_center = self.point() + Point::from_polar(config().vis_shift, self.angle());
-        let vision_radius = self.r() * config().vis_factor; // TODO: Not always true.
-        let max_dist = vision_radius + other.r();
+        // TODO: Should use the actual vision radius.
+        let max_dist = self.base_vision_radius() + other.r();
         other.point().qdist(vision_center) < max_dist.powi(2)
     }
 
@@ -88,6 +88,10 @@ impl Player {
 
     pub fn can_shrink(&self) -> bool {
         self.m() > config().min_shrink_mass
+    }
+
+    pub fn base_vision_radius(&self) -> f64 {
+        self.r() * config().vis_factor
     }
 
     pub fn speed(&self) -> Speed {

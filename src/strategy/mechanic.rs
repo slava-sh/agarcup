@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::f64::consts::PI;
-use std::iter::{self, FromIterator};
+use std::iter;
 
 use models::*;
 use command::Command;
@@ -16,8 +16,8 @@ pub struct Mechanic {
 #[derive(Debug, Clone, Default)]
 pub struct State {
     pub tick: i64,
-    pub my_blobs: HashMap<PlayerBlobId, Player>,
-    pub enemies: HashMap<PlayerBlobId, Player>,
+    pub my_blobs: Vec<Player>,
+    pub enemies: Vec<Player>,
     pub eaten_food: HashSet<FoodId>,
     pub eaten_ejections: HashSet<EjectionId>,
     pub eaten_viruses: HashSet<VirusId>,
@@ -27,24 +27,18 @@ impl State {
     pub fn new(tick: i64, my_blobs: Vec<Player>, enemies: Vec<Player>) -> State {
         State {
             tick,
-            my_blobs: State::players_from_vec(my_blobs),
-            enemies: State::players_from_vec(enemies),
+            my_blobs,
+            enemies,
             eaten_food: Default::default(),
             eaten_ejections: Default::default(),
             eaten_viruses: Default::default(),
         }
     }
-
-    fn players_from_vec(players: Vec<Player>) -> HashMap<PlayerBlobId, Player> {
-        HashMap::from_iter(players.into_iter().map(
-            |player| (player.id().clone(), player),
-        ))
-    }
 }
 
 impl Mechanic {
     pub fn new(state: &State) -> Mechanic {
-        let my_player_id = state.my_blobs.values().next().map_or(
+        let my_player_id = state.my_blobs.first().map_or(
             <PlayerId>::max_value(),
             |me| me.player_id(),
         );
@@ -63,9 +57,8 @@ impl Mechanic {
         viruses: &[Virus],
     ) {
         self.players = iter::empty()
-            .chain(self.state.my_blobs.values())
-            .chain(self.state.enemies.values())
-            .cloned()
+            .chain(self.state.my_blobs.drain(..))
+            .chain(self.state.enemies.drain(..))
             .collect();
 
         // Following vendor/miniaicups/agario/local_runner/mechanic.h
@@ -90,8 +83,8 @@ impl Mechanic {
         let (my_blobs, enemies) = self.players.drain(..).partition(|player| {
             player.player_id() == my_player_id
         });
-        self.state.my_blobs = State::players_from_vec(my_blobs);
-        self.state.enemies = State::players_from_vec(enemies);
+        self.state.my_blobs = my_blobs;
+        self.state.enemies = enemies;
     }
 
     fn apply_strategies(&mut self, command: &Command) {
