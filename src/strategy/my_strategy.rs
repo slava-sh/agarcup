@@ -2,16 +2,19 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::f64::consts::PI;
 use std::rc::{Rc, Weak};
+use std::time::{Instant, Duration};
 
 use config::config;
 use strategy::*;
 use strategy::mechanic::{Mechanic, State};
 use version::VERSION;
 
-const COMMAND_DISTANCE_FACTOR: f64 = 2.0;
 const MAX_LEADING_BLOBS: i64 = 3;
-const MAX_DEPTH: i64 = 5;
+const AVG_TICK_TIME_SECS: f64 = 150.0 / 7500.0;
+const MAX_SIMULATION_DEPTH: i64 = 20;
+const MIN_SIMULATION_DEPTH: i64 = 3;
 const MIN_SKIPS: i64 = 5;
+const COMMAND_DISTANCE_FACTOR: f64 = 2.0;
 
 const SPEED_REWARD_FACTOR: f64 = 0.01;
 const DANGER_PENALTY_FACTOR: f64 = -100.0;
@@ -34,6 +37,10 @@ pub struct MyStrategy {
     commands: VecDeque<Command>,
     enemy_pos: HashMap<PlayerBlobId, Point>,
 
+    simulation_depth: i64,
+    time_spent: Duration,
+    time_spent_ticks: i64,
+
     state: State,
     food: Vec<Food>,
     ejections: Vec<Ejection>,
@@ -54,36 +61,11 @@ struct Node {
 type SharedNode = Rc<RefCell<Node>>;
 type Score = f64;
 
-impl Strategy for MyStrategy {
-    fn tick(
-        &mut self,
-        tick: i64,
-        my_blobs: Vec<Player>,
-        food: Vec<Food>,
-        ejections: Vec<Ejection>,
-        viruses: Vec<Virus>,
-        enemies: Vec<Player>,
-    ) -> Command {
-        self.state = State::new(tick, my_blobs, enemies);
-        self.food = food;
-        self.ejections = ejections;
-        self.viruses = viruses;
-        self.infer_speeds();
-        if self.commands.is_empty() {
-            self.add_commands();
-        }
-        let mut command = self.commands.pop_front().expect("no commands left");
-        if self.state.tick == 0 {
-            command.add_debug_message(format!("running my strategy version {}", VERSION));
-        }
-        #[cfg(feature = "debug")] self.debug(&mut command);
-        command
-    }
-}
-
 impl MyStrategy {
     pub fn new() -> MyStrategy {
-        Default::default()
+        let mut strategy: MyStrategy = Default::default();
+        strategy.simulation_depth = MAX_SIMULATION_DEPTH;
+        strategy
     }
 
     fn node_score(&self, node: &SharedNode) -> Score {
@@ -127,6 +109,47 @@ impl MyStrategy {
         }
 
         score
+    }
+
+    fn tick_impl(
+        &mut self,
+        tick: i64,
+        my_blobs: Vec<Player>,
+        food: Vec<Food>,
+        ejections: Vec<Ejection>,
+        viruses: Vec<Virus>,
+        enemies: Vec<Player>,
+    ) -> Command {
+        let tick_start = Instant::now();
+        self.state = State::new(tick, my_blobs, enemies);
+        self.food = food;
+        self.ejections = ejections;
+        self.viruses = viruses;
+        self.infer_speeds();
+        if self.commands.is_empty() {
+            self.update_simulation_depth();
+            self.add_commands();
+        }
+        let mut command = self.commands.pop_front().expect("no commands left");
+        if self.state.tick == 0 {
+            command.add_debug_message(format!("running my strategy version {}", VERSION));
+        }
+        self.time_spent_ticks += 1;
+        self.time_spent += tick_start.elapsed();
+        #[cfg(feature = "debug")] self.debug(&mut command);
+        command
+    }
+
+    fn update_simulation_depth(&mut self) {
+        let time_budget = AVG_TICK_TIME_SECS * self.time_spent_ticks as f64;
+        let time_spent = duration_to_secs(self.time_spent);
+        if time_spent > time_budget {
+            self.simulation_depth = (self.simulation_depth / 2).max(MIN_SIMULATION_DEPTH);
+        } else {
+            self.simulation_depth = (self.simulation_depth + 1).min(MAX_SIMULATION_DEPTH);
+        }
+        self.time_spent = Default::default();
+        self.time_spent_ticks = 0;
     }
 
     fn add_commands(&mut self) {
@@ -183,14 +206,7 @@ impl MyStrategy {
                         me.angle() + angle,
                     );
                     let mut node = Rc::clone(&root);
-                    for depth in 0..MAX_DEPTH {
-                        //let node_me: Player = match node.borrow().state.my_blobs.get(me.id()) {
-                        //    Some(node_me) => node_me.clone(),
-                        //    None => break,
-                        //};
-                        //if false && !me.can_see(&node_me) {
-                        //    break;
-                        //}
+                    for depth in 0..self.simulation_depth {
                         let commands: Vec<_> = (0..self.skips)
                             .map(|i| {
                                 let mut command = Command::from_point(me.point() + v);
@@ -264,11 +280,11 @@ impl MyStrategy {
             Box::new(parents.iter().cycle().zip(children.iter()))
         }
 
-        fn go(node: &SharedNode, tree_size: &mut i64, command: &mut Command, depth: i64) {
+        fn go(node: &SharedNode, tree_size: &mut i64, command: &mut Command, num_blobs: usize) {
             let node = node.borrow();
-            let verbose = node.state.my_blobs.len() <= 9999 || depth > 0;
             *tree_size = *tree_size + 1;
-            if verbose {
+            let debug_skips = false;
+            if debug_skips {
                 for me in node.state.my_blobs.iter() {
                     command.add_debug_circle(DebugCircle {
                         center: me.point(),
@@ -279,11 +295,12 @@ impl MyStrategy {
                 }
             }
             for child in node.children.iter() {
-                if verbose {
-                    let color = if node.state.my_blobs.len() == 1 {
-                        String::from("lightGray")
-                    } else {
+                let debug_simulation_depth = true;
+                if debug_simulation_depth {
+                    let color = if node.state.my_blobs.len() > num_blobs {
                         String::from("pink")
+                    } else {
+                        String::from("lightGray")
                     };
                     let child = child.borrow();
                     for (n, c) in zip(&node.state.my_blobs, &child.state.my_blobs) {
@@ -295,12 +312,17 @@ impl MyStrategy {
                         });
                     }
                 }
-                go(child, tree_size, command, depth - 1);
+                go(child, tree_size, command, num_blobs);
             }
         }
 
         let mut tree_size = 0;
-        go(&self.root, &mut tree_size, command, self.skips * 9999);
+        go(
+            &self.root,
+            &mut tree_size,
+            command,
+            self.state.my_blobs.len(),
+        );
 
         for enemy in self.state.enemies.iter() {
             command.add_debug_circle(DebugCircle {
@@ -381,6 +403,15 @@ impl MyStrategy {
         command.add_debug_message(format!("queue: {}", self.commands.len()));
         command.add_debug_message(format!("tree: {}", tree_size));
         command.add_debug_message(format!("enemies: {}", self.state.enemies.len()));
+        command.add_debug_message(format!(
+            "depth: {}",
+            self.simulation_depth,
+        ));
+        command.add_debug_message(format!(
+            "goal:\t{:.4}",
+            AVG_TICK_TIME_SECS * self.skips as f64
+        ));
+        command.add_debug_message(format!("spent:\t{:.4}", duration_to_secs(self.time_spent)));
         if self.target.borrow().state.my_blobs.is_empty() {
             command.add_debug_message(format!("ABOUT TO DIE"));
         }
@@ -396,6 +427,20 @@ impl MyStrategy {
     }
 }
 
+impl Strategy for MyStrategy {
+    fn tick(
+        &mut self,
+        tick: i64,
+        my_blobs: Vec<Player>,
+        food: Vec<Food>,
+        ejections: Vec<Ejection>,
+        viruses: Vec<Virus>,
+        enemies: Vec<Player>,
+    ) -> Command {
+        self.tick_impl(tick, my_blobs, food, ejections, viruses, enemies)
+    }
+}
+
 fn find_nodes(root: &SharedNode) -> Vec<SharedNode> {
     fn go(node: &SharedNode, nodes: &mut Vec<SharedNode>) {
         nodes.push(Rc::clone(node));
@@ -407,4 +452,8 @@ fn find_nodes(root: &SharedNode) -> Vec<SharedNode> {
     let mut nodes = vec![];
     go(root, &mut nodes);
     nodes
+}
+
+fn duration_to_secs(duration: Duration) -> f64 {
+    duration.as_secs() as f64 + duration.subsec_nanos() as f64 * 1e-9
 }
