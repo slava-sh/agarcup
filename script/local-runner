@@ -1,4 +1,4 @@
 #!/bin/bash -e
 
 cd "$(dirname "$0")/.."
-./local_runner.app/Contents/MacOS/local_runner
+./vendor/miniaicups/agario/local_runner.app/Contents/MacOS/local_runner
