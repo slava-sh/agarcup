@@ -4,16 +4,16 @@ use std::f64::consts::PI;
 use std::rc::{Rc, Weak};
 use std::time::{Instant, Duration};
 
+use rand::XorShiftRng;
+
 use config::config;
 use strategy::*;
 use strategy::mechanic::{Mechanic, State};
 use version::VERSION;
 
-const MAX_LEADING_BLOBS: i64 = 3;
 const AVG_TICK_TIME_SECS: f64 = 150.0 / 7500.0;
-const MAX_SIMULATION_DEPTH: i64 = 5;
-const MIN_SIMULATION_DEPTH: i64 = 5;
 const MIN_SKIPS: i64 = 5;
+const SIMULATION_DEPTH: i64 = 5;
 const COMMAND_DISTANCE_FACTOR: f64 = 2.0;
 
 const SPEED_REWARD_FACTOR: f64 = 0.01;
@@ -36,10 +36,8 @@ pub struct MyStrategy {
     next_root: SharedNode,
     commands: VecDeque<Command>,
     enemy_pos: HashMap<PlayerBlobId, Point>,
-
-    simulation_depth: i64,
-    time_spent: Duration,
-    time_spent_ticks: i64,
+    time_budget_secs: f64,
+    rand: XorShiftRng,
 
     state: State,
     food: Vec<Food>,
@@ -63,9 +61,7 @@ type Score = f64;
 
 impl MyStrategy {
     pub fn new() -> MyStrategy {
-        let mut strategy: MyStrategy = Default::default();
-        strategy.simulation_depth = MAX_SIMULATION_DEPTH;
-        strategy
+        Default::default()
     }
 
     fn node_score(&self, node: &SharedNode) -> Score {
@@ -120,46 +116,31 @@ impl MyStrategy {
         viruses: Vec<Virus>,
         enemies: Vec<Player>,
     ) -> Command {
-        let tick_start = Instant::now();
+        self.time_budget_secs += AVG_TICK_TIME_SECS;
         self.state = State::new(tick, my_blobs, enemies);
         self.food = food;
         self.ejections = ejections;
         self.viruses = viruses;
         self.infer_speeds();
         if self.commands.is_empty() {
-            self.update_simulation_depth();
             self.add_commands();
         }
         let mut command = self.commands.pop_front().expect("no commands left");
         if self.state.tick == 0 {
             command.add_debug_message(format!("running my strategy version {}", VERSION));
         }
-        self.time_spent_ticks += 1;
-        self.time_spent += tick_start.elapsed();
         #[cfg(feature = "debug")] self.debug(&mut command);
         command
     }
 
-    fn update_simulation_depth(&mut self) {
-        let time_budget = AVG_TICK_TIME_SECS * self.time_spent_ticks as f64;
-        let time_spent = duration_to_secs(self.time_spent);
-        if time_spent > time_budget {
-            self.simulation_depth = (self.simulation_depth / 2).max(MIN_SIMULATION_DEPTH);
-        } else {
-            self.simulation_depth = (self.simulation_depth + 1).min(MAX_SIMULATION_DEPTH);
-        }
-        self.time_spent = Default::default();
-        self.time_spent_ticks = 0;
-    }
-
     fn add_commands(&mut self) {
-        let biggest_me = &self.state
+        let me = &self.state
             .my_blobs
             .iter()
-            .max_by(|a, b| a.m().partial_cmp(&b.m()).expect("incomparable mass"))
+            .min_by(|a, b| a.m().partial_cmp(&b.m()).expect("incomparable mass"))
             .expect("add_commands with no blobs");
-        let speed = (biggest_me.speed() + biggest_me.max_speed()) / 2.0;
-        self.skips = ((biggest_me.r() / speed).round() as i64).max(MIN_SKIPS);
+        let speed = (me.speed() + me.max_speed()) / 2.0;
+        self.skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
 
         self.root = Default::default();
         self.root.borrow_mut().state = self.state.clone();
@@ -180,20 +161,14 @@ impl MyStrategy {
                 .borrow()
                 .commands
                 .iter()
+                .take(self.skips as usize)
                 .cloned(),
         );
     }
 
     fn add_nodes(&self, root: &SharedNode) {
-        let mut leading_blobs: Vec<_> = root.borrow().state.my_blobs.iter().cloned().collect();
-        leading_blobs.sort_by(|a, b| {
-            a.m()
-                .partial_cmp(&b.m())
-                .expect("incomparable mass")
-                .reverse()
-                .then_with(|| a.fragment_id().cmp(&b.fragment_id()))
-        });
-        for me in leading_blobs.into_iter().take(MAX_LEADING_BLOBS as usize) {
+        let mut paths: Vec<Vec<Command>> = Vec::new();
+        for me in self.state.my_blobs.iter() {
             let splits = if me.can_split(1) {
                 vec![false, true]
             } else {
@@ -201,31 +176,45 @@ impl MyStrategy {
             };
             for split in splits {
                 for angle in DISCOVERY_ANGLES.iter() {
-                    let v = Point::from_polar(
-                        me.base_vision_radius() * COMMAND_DISTANCE_FACTOR,
-                        me.angle() + angle,
-                    );
-                    let mut node = Rc::clone(&root);
-                    for depth in 0..self.simulation_depth {
-                        let commands: Vec<_> = (0..self.skips)
+                    let target = me.point() +
+                        Point::from_polar(
+                            me.base_vision_radius() * COMMAND_DISTANCE_FACTOR,
+                            me.angle() + angle,
+                        );
+                    paths.push(
+                        (0..2)
                             .map(|i| {
-                                let mut command = Command::from_point(me.point() + v);
-                                if split && depth == 0 && i == 0 {
+                                let mut command = Command::from_point(target);
+                                if split && i == 0 {
                                     command.set_split();
                                 }
                                 command
                             })
-                            .collect();
-                        let child = Rc::new(RefCell::new(Node {
-                            state: self.predict_states(&node.borrow().state, commands.as_ref()),
-                            commands: commands,
-                            parent: Rc::downgrade(&node),
-                            children: Default::default(),
-                        }));
-                        node.borrow_mut().children.push(Rc::clone(&child));
-                        node = child;
-                    }
+                            .collect(),
+                    );
                 }
+            }
+        }
+
+        for path in paths {
+            let mut node = Rc::clone(&root);
+            let mut depth = 0;
+            for _ in 0..SIMULATION_DEPTH {
+                let commands: Vec<_> = (0..self.skips)
+                    .map(|_| {
+                        let command = path[depth.min(path.len() - 1)].clone();
+                        depth += 1;
+                        command
+                    })
+                    .collect();
+                let child = Rc::new(RefCell::new(Node {
+                    state: self.predict_states(&node.borrow().state, commands.as_ref()),
+                    commands: commands,
+                    parent: Rc::downgrade(&node),
+                    children: Default::default(),
+                }));
+                node.borrow_mut().children.push(Rc::clone(&child));
+                node = child;
             }
         }
     }
@@ -404,14 +393,10 @@ impl MyStrategy {
         command.add_debug_message(format!("tree: {}", tree_size));
         command.add_debug_message(format!("enemies: {}", self.state.enemies.len()));
         command.add_debug_message(format!(
-            "depth: {}",
-            self.simulation_depth,
-        ));
-        command.add_debug_message(format!(
             "goal:\t{:.4}",
             AVG_TICK_TIME_SECS * self.skips as f64
         ));
-        command.add_debug_message(format!("spent:\t{:.4}", duration_to_secs(self.time_spent)));
+        //command.add_debug_message(format!("spent:\t{:.4}", duration_to_secs(self.time_spent)));
         if self.target.borrow().state.my_blobs.is_empty() {
             command.add_debug_message(format!("ABOUT TO DIE"));
         }
