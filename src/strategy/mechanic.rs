@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::f64::consts::PI;
 use std::iter;
 
 use models::*;
@@ -496,16 +495,8 @@ fn fusion(player: &mut Player, other: &Player) {
 }
 
 fn burst_on(player: &mut Player, virus: &Virus) {
-    let mut angle = 0.0;
-    let dist = player.point().dist(virus.point());
-    if dist > 0.0 {
-        angle = ((player.point().y - virus.point().y) / dist).asin();
-        if player.point().x < virus.point().x {
-            angle = PI - angle;
-        }
-    }
-
     let speed = player.speed().min(player.max_speed());
+    let angle = (player.point() - virus.point()).angle();
     let v = Point::from_polar(speed, angle);
     player.set_v(v);
 
