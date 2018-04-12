@@ -2,4 +2,4 @@
 
 cd "$(dirname "$0")/.."
 echo '{"solution_id": "'"$1"'"}'
-"$2"
+exec "$2"
