@@ -7,15 +7,14 @@ trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 export GAME_LOG_LOCATION=/var/tmp/game_log.txt
 export GAME_TICKS=7500
 ./vendor/miniaicups/agario/server_runner &
-sleep 0.1
+sleep 0.3
 
 i=0
 for strategy in "$@"; do
   i=$((i + 1));
   socat tcp:127.0.0.1:8000 \
-    exec:"./script/client-runner 'player_$i' '$strategy'" &
+    exec:"./script/client-runner '$i' '$strategy'" &
 done
-
 wait
 
-jq . /var/tmp/scores.json
+./script/report-scores "$@" /var/tmp/scores.json
