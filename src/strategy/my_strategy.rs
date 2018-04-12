@@ -4,7 +4,7 @@ use std::f64::consts::PI;
 use std::rc::{Rc, Weak};
 use std::time::{Instant, Duration};
 
-use rand::XorShiftRng;
+use rand::{XorShiftRng, SeedableRng};
 
 use config::config;
 use strategy::*;
@@ -30,14 +30,14 @@ lazy_static! {
     };
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct MyStrategy {
     root: SharedNode,
     next_root: SharedNode,
     commands: VecDeque<Command>,
     enemy_pos: HashMap<PlayerBlobId, Point>,
     time_budget_secs: f64,
-    rand: XorShiftRng,
+    rng: XorShiftRng,
 
     state: State,
     food: Vec<Food>,
@@ -61,7 +61,22 @@ type Score = f64;
 
 impl MyStrategy {
     pub fn new() -> MyStrategy {
-        Default::default()
+        MyStrategy {
+            root: Default::default(),
+            next_root: Default::default(),
+            commands: Default::default(),
+            enemy_pos: Default::default(),
+            time_budget_secs: Default::default(),
+            rng: XorShiftRng::from_seed([0x1337_5EED; 4]),
+
+            state: Default::default(),
+            food: Default::default(),
+            ejections: Default::default(),
+            viruses: Default::default(),
+
+            skips: Default::default(),
+            target: Default::default(),
+        }
     }
 
     fn node_score(&self, node: &SharedNode) -> Score {
