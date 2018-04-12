@@ -41,8 +41,8 @@ impl<S: Strategy> Strategy for TimingWrapper<S> {
         );
         self.total += precise_time_s() - start;
         let expected = AVG_TICK_TIME_SECS * (tick + 1) as Seconds;
-        command.add_debug_message(format!("total: {:.2}", self.total));
-        command.add_debug_message(format!("budget: {:.2}", expected - self.total));
+        command.add_debug_message(format!("total:\t{:.2}", self.total));
+        command.add_debug_message(format!("budget:\t{:.2}", expected - self.total));
         command
     }
 }

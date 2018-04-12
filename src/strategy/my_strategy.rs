@@ -4,7 +4,7 @@ use std::f64::consts::PI;
 use std::rc::{Rc, Weak};
 use std::time::{Instant, Duration};
 
-use rand::{XorShiftRng, SeedableRng};
+use rand::{Rng, SeedableRng, XorShiftRng};
 
 use config::config;
 use strategy::*;
@@ -36,7 +36,6 @@ pub struct MyStrategy {
     next_root: SharedNode,
     commands: VecDeque<Command>,
     enemy_pos: HashMap<PlayerBlobId, Point>,
-    time_budget_secs: f64,
     rng: XorShiftRng,
 
     state: State,
@@ -44,8 +43,12 @@ pub struct MyStrategy {
     ejections: Vec<Ejection>,
     viruses: Vec<Virus>,
 
+    tick_start_time: Instant,
     skips: i64,
     target: SharedNode,
+
+    paths_seen: i64,
+    num_paths: i64,
 }
 
 #[derive(Debug, Default)]
@@ -66,7 +69,6 @@ impl MyStrategy {
             next_root: Default::default(),
             commands: Default::default(),
             enemy_pos: Default::default(),
-            time_budget_secs: Default::default(),
             rng: XorShiftRng::from_seed([0x1337_5EED; 4]),
 
             state: Default::default(),
@@ -74,8 +76,12 @@ impl MyStrategy {
             ejections: Default::default(),
             viruses: Default::default(),
 
+            tick_start_time: Instant::now(),
             skips: Default::default(),
             target: Default::default(),
+
+            paths_seen: Default::default(),
+            num_paths: Default::default(),
         }
     }
 
@@ -131,13 +137,14 @@ impl MyStrategy {
         viruses: Vec<Virus>,
         enemies: Vec<Player>,
     ) -> Command {
-        self.time_budget_secs += AVG_TICK_TIME_SECS;
+        self.tick_start_time = Instant::now();
         self.state = State::new(tick, my_blobs, enemies);
         self.food = food;
         self.ejections = ejections;
         self.viruses = viruses;
         self.infer_speeds();
         if self.commands.is_empty() {
+            self.update_skips();
             self.add_commands();
         }
         let mut command = self.commands.pop_front().expect("no commands left");
@@ -149,17 +156,9 @@ impl MyStrategy {
     }
 
     fn add_commands(&mut self) {
-        let me = &self.state
-            .my_blobs
-            .iter()
-            .min_by(|a, b| a.m().partial_cmp(&b.m()).expect("incomparable mass"))
-            .expect("add_commands with no blobs");
-        let speed = (me.speed() + me.max_speed()) / 2.0;
-        self.skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
-
         self.root = Default::default();
         self.root.borrow_mut().state = self.state.clone();
-        self.add_nodes(&self.root);
+        self.add_nodes();
 
         self.target = find_nodes(&self.root)
             .into_iter()
@@ -181,7 +180,47 @@ impl MyStrategy {
         );
     }
 
-    fn add_nodes(&self, root: &SharedNode) {
+    fn add_nodes(&mut self) {
+        let mut paths = self.generate_paths();
+        self.rng.shuffle(&mut paths);
+        #[cfg(feature = "debug")]
+        {
+            self.paths_seen = 0;
+            self.num_paths = paths.len() as i64;
+        }
+        for (i, path) in paths.into_iter().enumerate() {
+            let time_budget = AVG_TICK_TIME_SECS * self.skips as f64;
+            let elapsed = duration_to_secs(self.tick_start_time.elapsed());
+            if i != 0 && elapsed * (i + 1) as f64 / i as f64 > time_budget {
+                break;
+            }
+            #[cfg(feature = "debug")]
+            {
+                self.paths_seen += 1;
+            }
+            let mut node = Rc::clone(&self.root);
+            let mut depth = 0;
+            for _ in 0..SIMULATION_DEPTH {
+                let commands: Vec<_> = (0..self.skips)
+                    .map(|_| {
+                        let command = path[depth.min(path.len() - 1)].clone();
+                        depth += 1;
+                        command
+                    })
+                    .collect();
+                let child = Rc::new(RefCell::new(Node {
+                    state: self.predict_states(&node.borrow().state, commands.as_ref()),
+                    commands: commands,
+                    parent: Rc::downgrade(&node),
+                    children: Default::default(),
+                }));
+                node.borrow_mut().children.push(Rc::clone(&child));
+                node = child;
+            }
+        }
+    }
+
+    fn generate_paths(&self) -> Vec<Vec<Command>> {
         let mut paths: Vec<Vec<Command>> = Vec::new();
         for me in self.state.my_blobs.iter() {
             let splits = if me.can_split(1) {
@@ -210,28 +249,17 @@ impl MyStrategy {
                 }
             }
         }
+        paths
+    }
 
-        for path in paths {
-            let mut node = Rc::clone(&root);
-            let mut depth = 0;
-            for _ in 0..SIMULATION_DEPTH {
-                let commands: Vec<_> = (0..self.skips)
-                    .map(|_| {
-                        let command = path[depth.min(path.len() - 1)].clone();
-                        depth += 1;
-                        command
-                    })
-                    .collect();
-                let child = Rc::new(RefCell::new(Node {
-                    state: self.predict_states(&node.borrow().state, commands.as_ref()),
-                    commands: commands,
-                    parent: Rc::downgrade(&node),
-                    children: Default::default(),
-                }));
-                node.borrow_mut().children.push(Rc::clone(&child));
-                node = child;
-            }
-        }
+    fn update_skips(&mut self) {
+        let me = &self.state
+            .my_blobs
+            .iter()
+            .max_by(|a, b| a.m().partial_cmp(&b.m()).expect("incomparable mass"))
+            .expect("add_commands with no blobs");
+        let speed = (me.speed() + me.max_speed()) / 2.0;
+        self.skips = ((me.r() / speed).round() as i64).max(MIN_SKIPS);
     }
 
     fn next_root(&self) -> SharedNode {
@@ -403,15 +431,19 @@ impl MyStrategy {
         mark_eaten(&self.viruses, &target_state.eaten_viruses, command);
         // TODO: mark_eaten(&self.enemies, &target_state.eaten_enemies, command);
 
-        command.add_debug_message(format!("skips: {}", self.skips));
-        command.add_debug_message(format!("queue: {}", self.commands.len()));
-        command.add_debug_message(format!("tree: {}", tree_size));
-        command.add_debug_message(format!("enemies: {}", self.state.enemies.len()));
+        command.add_debug_message(format!("skips:\t{}", self.skips));
+        command.add_debug_message(format!("queue:\t{}", self.commands.len()));
+        command.add_debug_message(format!("paths:\t{} / {}", self.paths_seen, self.num_paths));
+        command.add_debug_message(format!("tree:\t{}", tree_size));
+        command.add_debug_message(format!("enemies:\t{}", self.state.enemies.len()));
         command.add_debug_message(format!(
             "goal:\t{:.4}",
             AVG_TICK_TIME_SECS * self.skips as f64
         ));
-        //command.add_debug_message(format!("spent:\t{:.4}", duration_to_secs(self.time_spent)));
+        command.add_debug_message(format!(
+            "spent:\t{:.4}",
+            duration_to_secs(self.tick_start_time.elapsed())
+        ));
         if self.target.borrow().state.my_blobs.is_empty() {
             command.add_debug_message(format!("ABOUT TO DIE"));
         }
