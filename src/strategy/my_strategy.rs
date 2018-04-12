@@ -437,6 +437,9 @@ impl Strategy for MyStrategy {
         viruses: Vec<Virus>,
         enemies: Vec<Player>,
     ) -> Command {
+        if my_blobs.is_empty() {
+            return Default::default();
+        }
         self.tick_impl(tick, my_blobs, food, ejections, viruses, enemies)
     }
 }
