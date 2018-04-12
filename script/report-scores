@@ -3,16 +3,16 @@ import json
 import sys
 
 def main():
-    players = sys.argv[1:5]
+    solutions = sys.argv[1:5]
     filename = sys.argv[5]
     with open(filename) as reader:
         scores = json.load(reader)
     total = sum(scores.values())
-    print('{:<20} {:>10} {:>10}'.format('player', 'score', 'total %'))
-    for player, score in sorted(scores.items(), key=lambda item: -item[1]):
-        player = players[int(player) - 1]
+    print('{:<20} {:>10} {:>10}'.format('solution', 'score', 'total %'))
+    for solution, score in sorted(scores.items(), key=lambda item: -item[1]):
+        solution = solutions[int(solution) - 1]
         print('{:<20} {:>10} {:>10.1f}'.format(
-            player, score, score / total * 100))
+            solution, score, score / total * 100))
 
 if __name__ == '__main__':
     main()

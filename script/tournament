@@ -14,7 +14,7 @@ for strategy in "$@"; do
   i=$((i + 1));
   socat tcp:127.0.0.1:8000 \
     exec:"./script/client-runner '$i' '$strategy'" &
-  echo player "$i" pid "$!"
+  echo solution "$i" pid "$!"
 done
 wait
 
