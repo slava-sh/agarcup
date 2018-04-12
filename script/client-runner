@@ -1,0 +1,5 @@
+#!/bin/bash -e
+
+cd "$(dirname "$0")/.."
+echo '{"solution_id": "'"$1"'"}'
+"$2"
