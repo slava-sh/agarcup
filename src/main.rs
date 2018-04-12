@@ -1,10 +1,10 @@
+#[macro_use]
+extern crate lazy_static;
 extern crate serde;
 #[macro_use]
 extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
-#[macro_use]
-mod lazy_static;
 
 #[cfg(feature = "debug")]
 #[macro_use]

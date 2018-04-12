@@ -5,16 +5,17 @@ authors = ["Slava Shklyaev <slava@slava.sh>"]
 
 [features]
 default = []
-debug = []
+debug = ["chrono", "fern", "log", "time"]
 
 [dependencies]
+lazy_static = "1.0.0"
 serde = "1.0.13"
 serde_derive = "1.0.13"
 serde_json = "1.0.13"
-chrono = "0.4.1"
-fern = "0.5.5"
-log = "0.4.1"
-time = "0.1.39"
+chrono = { version = "0.4.1", optional = true }
+fern = { version = "0.5.5", optional = true }
+log = { version = "0.4.1", optional = true }
+time = { version = "0.1.39", optional = true }
 
 [workspace]
 members = [
