@@ -429,7 +429,19 @@ impl MyStrategy {
         mark_eaten(&self.food, &target_state.eaten_food, command);
         mark_eaten(&self.ejections, &target_state.eaten_ejections, command);
         mark_eaten(&self.viruses, &target_state.eaten_viruses, command);
-        // TODO: mark_eaten(&self.enemies, &target_state.eaten_enemies, command);
+        for enemy in self.state.enemies.iter() {
+            if !target_state.enemies.iter().any(|player| {
+                player.id() == enemy.id()
+            })
+            {
+                command.add_debug_circle(DebugCircle {
+                    center: enemy.point(),
+                    radius: enemy.r() + 2.0,
+                    color: String::from("green"),
+                    opacity: 0.5,
+                });
+            }
+        }
 
         command.add_debug_message(format!("skips:\t{}", self.skips));
         command.add_debug_message(format!("queue:\t{}", self.commands.len()));
