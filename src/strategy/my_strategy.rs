@@ -13,7 +13,7 @@ use version::VERSION;
 
 const AVG_TICK_TIME_SECS: f64 = 150.0 / 7500.0;
 const MIN_SKIPS: i64 = 5;
-const SIMULATION_DEPTH: i64 = 5;
+const SIMULATION_DEPTH: i64 = 10;
 const COMMAND_DISTANCE_FACTOR: f64 = 2.0;
 
 const SPEED_REWARD_FACTOR: f64 = 0.01;
