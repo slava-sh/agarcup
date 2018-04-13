@@ -4,18 +4,27 @@ cd "$(dirname "$0")/.."
 
 trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 
-export GAME_LOG_LOCATION=/var/tmp/game_log.txt
-export GAME_TICKS=7500
-./vendor/miniaicups/agario/server_runner &
-sleep 0.3
+TOURNAMENT=/var/tmp/tournament.txt
+rm -rf "$TOURNAMENT"
 
-i=0
-for strategy in "$@"; do
-  i=$((i + 1));
-  socat tcp:127.0.0.1:8000 \
-    exec:"./script/client-runner '$i' '$strategy'" &
-  echo solution "$i" pid "$!"
+for round in {1..10}; do
+  echo "round $round"
+
+  export GAME_LOG_LOCATION=/var/tmp/game_log.txt
+  export GAME_TICKS=7500
+  ./vendor/miniaicups/agario/server_runner &
+  sleep 0.3
+
+  i=0
+  for strategy in "$@"; do
+    i=$((i + 1));
+    socat tcp:127.0.0.1:8000 \
+      exec:"./script/client-runner '$i' '$strategy'" &
+    echo "solution $i pid $!"
+  done
+  wait
+
+  ./script/report-scores "$@" /var/tmp/scores.json | tee -a "$TOURNAMENT"
 done
-wait
 
-./script/report-scores "$@" /var/tmp/scores.json
+./script/analyze-tournament "$TOURNAMENT"
