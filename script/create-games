@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+import sys
+import itertools
+import requests
+from lxml import html
+
+BASE_URL = 'http://aicups.ru'
+session = requests.Session()
+
+
+def chunks(iterable, n):
+    args = [iter(iterable)] * n
+    return itertools.zip_longest(*args)
+
+
+def get_top_profile_links():
+    response = session.get(BASE_URL + '/rating/')
+    response.raise_for_status()
+    dom = html.fromstring(response.content)
+    return [
+        a.attrib['href']
+        for a in dom.xpath('//*[@id="1"]/table/tbody/tr/td[2]/a')
+    ]
+
+
+def get_solution_id(profile_link):
+    response = session.get(BASE_URL + profile_link)
+    response.raise_for_status()
+    dom = html.fromstring(response.content)
+    links = dom.xpath(
+        '//*[@id="ranked-games"]/div/div/table/tbody/tr[1]/td[6]/a')
+    for profile_a, solution_a in chunks(links, 2):
+        if profile_a.attrib['href'] == profile_link:
+            break
+    solution_id = int(solution_a.text_content()[1:-1])
+    return solution_id
+
+
+def create_games(num_games):
+    profiles = get_top_profile_links()
+    for opponents in itertools.islice(chunks(profiles, 3), num_games):
+        solution_ids = [get_solution_id(opponent) for opponent in opponents]
+        print('creating a game with solutions', ', '.join(
+            map(str, solution_ids)), end=': ')
+        response = session.post(
+            BASE_URL + '/run_solutions/',
+            data={
+                'solutions_id[]': solution_ids,
+                'contest_id': 2,
+                'additional_params': {},
+                'csrfmiddlewaretoken': session.cookies['csrftoken']
+            })
+        response.raise_for_status()
+        print(response.json())
+
+
+def main():
+    num_games = int(sys.argv[1])
+    sessionid = sys.argv[2]
+    session.cookies = requests.cookies.cookiejar_from_dict(
+        dict(sessionid=sessionid))
+    create_games(num_games)
+
+
+if __name__ == '__main__':
+    main()
