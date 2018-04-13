@@ -86,12 +86,29 @@ impl Mechanic {
         self.state.enemies = enemies;
     }
 
-    fn apply_strategies(&mut self, command: &Command) {
-        for player in self.players.iter_mut() {
-            if player.player_id() == self.my_player_id {
-                apply_direct(player, command);
+    fn apply_strategies(&mut self, my_command: &Command) {
+        for i in 0..self.players.len() {
+            if self.players[i].player_id() == self.my_player_id {
+                apply_direct(&mut self.players[i], my_command);
+            } else if let Some(target) = self.predict_enemy_target(&self.players[i]) {
+                apply_direct(&mut self.players[i], &Command::from_point(target));
             }
         }
+    }
+
+    fn predict_enemy_target(&self, enemy: &Player) -> Option<Point> {
+        self.players
+            .iter()
+            .filter(|&me| {
+                me.player_id() == self.my_player_id && me.m() < enemy.m() && enemy.can_see(me)
+            })
+            .min_by(|a, b| {
+                a.point()
+                    .qdist(enemy.point())
+                    .partial_cmp(&b.point().qdist(enemy.point()))
+                    .expect("incomparable distances")
+            })
+            .map(|me| me.point())
     }
 
     fn move_moveables(&mut self) {
