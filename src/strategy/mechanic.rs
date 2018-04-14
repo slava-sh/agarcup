@@ -255,7 +255,7 @@ impl Mechanic {
                 fragment_count += new_blobs.len() as i64;
                 // TODO: Don't burst new_blobs on this tick.
                 self.players.extend(new_blobs);
-                self.state.eaten_viruses.insert(virus.id().clone());
+                self.state.eaten_viruses.insert(virus.id());
             }
         }
     }
@@ -415,12 +415,12 @@ fn shrink_now(player: &mut Player) {
 
 fn eat_food<F: Blob>(food: &[F], eaten: &mut HashSet<F::Id>, players: &mut [Player]) {
     for blob in food.iter() {
-        if eaten.contains(blob.id()) {
+        if eaten.contains(&blob.id()) {
             continue;
         }
         if let Some(i) = nearest_player(blob, |player| player.can_eat_blob(blob), players.iter()) {
             player_eat(&mut players[i], blob);
-            eaten.insert(blob.id().clone());
+            eaten.insert(blob.id());
         }
     }
 }

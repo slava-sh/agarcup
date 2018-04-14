@@ -289,7 +289,7 @@ impl MyStrategy {
 
     fn infer_speeds(&mut self) {
         for enemy in self.state.enemies.iter_mut() {
-            let v = if let Some(last_pos) = self.enemy_pos.get(enemy.id()) {
+            let v = if let Some(last_pos) = self.enemy_pos.get(&enemy.id()) {
                 enemy.point() - *last_pos
             } else {
                 Point::zero()
@@ -299,7 +299,7 @@ impl MyStrategy {
         }
         self.enemy_pos.clear();
         for enemy in self.state.enemies.iter() {
-            self.enemy_pos.insert(enemy.id().clone(), enemy.point());
+            self.enemy_pos.insert(enemy.id(), enemy.point());
         }
     }
 
@@ -414,7 +414,7 @@ impl MyStrategy {
         use std::collections::HashSet;
         fn mark_eaten<B: Blob>(blobs: &[B], eaten: &HashSet<B::Id>, command: &mut Command) {
             for blob in blobs.iter() {
-                if eaten.contains(blob.id()) {
+                if eaten.contains(&blob.id()) {
                     command.add_debug_circle(DebugCircle {
                         center: blob.point(),
                         radius: blob.r() + 2.0,

@@ -11,7 +11,7 @@ pub trait Circle: HasPoint {
 }
 
 pub trait Blob: Circle {
-    type Id: Clone + Eq + Hash;
-    fn id(&self) -> &Self::Id;
+    type Id: Copy + Eq + Hash;
+    fn id(&self) -> Self::Id;
     fn m(&self) -> Mass;
 }

@@ -24,8 +24,8 @@ impl Circle for Virus {
 impl Blob for Virus {
     type Id = VirusId;
 
-    fn id(&self) -> &VirusId {
-        &self.id_
+    fn id(&self) -> VirusId {
+        self.id_
     }
 
     fn m(&self) -> Mass {

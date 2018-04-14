@@ -23,8 +23,8 @@ impl Circle for Ejection {
 impl Blob for Ejection {
     type Id = EjectionId;
 
-    fn id(&self) -> &EjectionId {
-        &self.id_
+    fn id(&self) -> EjectionId {
+        self.id_
     }
 
     fn m(&self) -> Mass {

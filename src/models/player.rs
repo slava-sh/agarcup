@@ -11,7 +11,7 @@ pub struct Player {
     pub ttf_: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PlayerBlobId {
     pub player_id: PlayerId,
     pub fragment_id: FragmentId,
@@ -35,8 +35,8 @@ impl Circle for Player {
 impl Blob for Player {
     type Id = PlayerBlobId;
 
-    fn id(&self) -> &PlayerBlobId {
-        &self.id_
+    fn id(&self) -> PlayerBlobId {
+        self.id_
     }
 
     fn m(&self) -> Mass {
