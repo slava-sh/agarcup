@@ -170,7 +170,7 @@ impl Mechanic {
     fn fuse_players(&mut self) {
         // TODO: Fuse other players.
         const FUSED: PlayerId = <PlayerId>::max_value();
-        self.players.sort_by(|a, b| {
+        self.players.sort_unstable_by(|a, b| {
             a.player_id().cmp(&b.player_id()).then_with(|| {
                 a.m()
                     .partial_cmp(&b.m())
@@ -358,7 +358,7 @@ fn collision_calc(a: &mut Player, b: &mut Player) {
 }
 
 fn split_fragments(fragments: &mut [&mut Player]) -> Vec<Player> {
-    fragments.sort_by(|a, b| {
+    fragments.sort_unstable_by(|a, b| {
         a.m()
             .partial_cmp(&b.m())
             .expect("incomparable mass")
