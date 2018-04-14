@@ -155,7 +155,6 @@ impl Mechanic {
     }
 
     fn fuse_players(&mut self) {
-        // TODO: Fuse other players.
         const FUSED: PlayerId = <PlayerId>::max_value();
         self.players.sort_unstable_by(|a, b| {
             a.player_id().cmp(&b.player_id()).then_with(|| {
@@ -167,18 +166,15 @@ impl Mechanic {
             })
         });
         let mut fused_count = 0;
-        {
-            let fragments = {
-                let mut i = 0;
-                while i < self.players.len() && self.players[i].player_id() != self.my_player_id {
-                    i += 1;
-                }
-                let mut j = i;
-                while j < self.players.len() && self.players[j].player_id() == self.my_player_id {
-                    j += 1;
-                }
-                &mut self.players[i..j]
-            };
+        let mut fragments_i = 0;
+        while fragments_i < self.players.len() {
+            let mut fragments_j = fragments_i;
+            while fragments_j < self.players.len() &&
+                self.players[fragments_j].player_id() == self.players[fragments_i].player_id()
+            {
+                fragments_j += 1;
+            }
+            let fragments = &mut self.players[fragments_i..fragments_j];
             loop {
                 let mut idle = true;
                 for i in 0..fragments.len() {
@@ -208,6 +204,7 @@ impl Mechanic {
             if fragments.len() == 1 {
                 fragments[0].set_fragment_id(0);
             }
+            fragments_i = fragments_j;
         }
         if fused_count != 0 {
             self.players.retain(|player| player.player_id() != FUSED);

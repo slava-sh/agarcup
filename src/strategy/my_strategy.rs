@@ -17,6 +17,7 @@ const SIMULATION_DEPTH: i64 = 7;
 const COMMAND_DISTANCE_FACTOR: f64 = 2.0;
 
 const GHOST_TICKS: i64 = 50;
+const GHOST_TTF_FACTOR: f64 = 0.5;
 
 const SPEED_REWARD_FACTOR: f64 = 0.01;
 const DANGER_PENALTY_FACTOR: f64 = -100.0;
@@ -302,12 +303,18 @@ impl MyStrategy {
     fn update_enemies(&mut self, enemies: Vec<Player>) {
         let tick = self.state.tick;
         for mut enemy in enemies {
-            if let Some(ghost) = self.ghost_enemies.get(&enemy.id()) {
-                if ghost.last_seen == tick - 1 {
-                    let v = enemy.point() - ghost.player.point();
-                    enemy.set_v(v);
-                    enemy.update_is_fast();
-                }
+            if let Some(ghost) = self.ghost_enemies
+                .get(&enemy.id())
+                .into_iter()
+                .filter(|ghost| ghost.last_seen == tick - 1)
+                .next()
+            {
+                let v = enemy.point() - ghost.player.point();
+                enemy.set_v(v);
+                enemy.update_is_fast();
+                enemy.set_ttf((ghost.player.ttf() - 1).max(0));
+            } else {
+                enemy.set_ttf((config().ticks_til_fusion as f64 * GHOST_TTF_FACTOR) as i64);
             }
             self.ghost_enemies.insert(
                 enemy.id(),
