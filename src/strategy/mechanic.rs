@@ -87,7 +87,7 @@ impl Mechanic {
         self.players
             .iter()
             .filter(|&me| {
-                me.player_id() == self.my_player_id && me.m() < enemy.m() && enemy.can_see(me)
+                me.player_id() == self.my_player_id && me.m() < enemy.m() && enemy.can_see(me, 1)
             })
             .min_by(|a, b| {
                 a.point()

@@ -58,10 +58,18 @@ impl Player {
         min_r < self.r()
     }
 
-    pub fn can_see<Other: Circle>(&self, other: &Other) -> bool {
+    pub fn can_see<Other: Circle>(&self, other: &Other, fragment_count: usize) -> bool {
+        self.can_see_safe(other, fragment_count, 1.0)
+    }
+
+    pub fn can_see_safe<Other: Circle>(
+        &self,
+        other: &Other,
+        fragment_count: usize,
+        safety_factor: f64,
+    ) -> bool {
         let vision_center = self.point() + Point::from_polar(config().vis_shift, self.angle());
-        // TODO: Should use the actual vision radius.
-        let max_dist = self.base_vision_radius() + other.r();
+        let max_dist = self.vision_radius(fragment_count) * safety_factor + other.r();
         other.point().qdist(vision_center) < max_dist.powi(2)
     }
 
@@ -90,8 +98,12 @@ impl Player {
         self.m() > config().min_shrink_mass
     }
 
-    pub fn base_vision_radius(&self) -> f64 {
-        self.r() * config().vis_factor
+    pub fn vision_radius(&self, fragment_count: usize) -> f64 {
+        if fragment_count == 1 {
+            self.r() * config().vis_factor
+        } else {
+            self.r() * config().vis_factor_fr * (fragment_count as f64).sqrt()
+        }
     }
 
     pub fn speed(&self) -> Speed {

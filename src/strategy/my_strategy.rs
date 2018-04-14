@@ -17,6 +17,7 @@ const SIMULATION_DEPTH: i64 = 7;
 const COMMAND_DISTANCE_FACTOR: f64 = 2.0;
 
 const GHOST_TICKS: i64 = 50;
+const GHOST_VISIBILITY_FACTOR: f64 = 0.95;
 const GHOST_TTF_FACTOR: f64 = 0.5;
 
 const SPEED_REWARD_FACTOR: f64 = 0.01;
@@ -114,7 +115,7 @@ impl MyStrategy {
         }
 
         for enemy in state.enemies.iter() {
-            if enemy.m() > me.m() && enemy.can_see(me) {
+            if enemy.m() > me.m() && enemy.can_see(me, 1) {
                 let mut speed = enemy.max_speed();
                 if enemy.m() > me.m() * 2.0 {
                     speed = speed.max(config().split_start_speed);
@@ -245,7 +246,7 @@ impl MyStrategy {
                 for angle in DISCOVERY_ANGLES.iter() {
                     let target = me.point() +
                         Point::from_polar(
-                            me.base_vision_radius() * COMMAND_DISTANCE_FACTOR,
+                            me.vision_radius(self.state.my_blobs.len()) * COMMAND_DISTANCE_FACTOR,
                             me.angle() + angle,
                         );
                     paths.push(
@@ -324,8 +325,13 @@ impl MyStrategy {
                 },
             );
         }
+        let ref my_blobs = self.state.my_blobs;
         self.ghost_enemies.retain(|_, ghost| {
-            ghost.last_seen >= tick - GHOST_TICKS
+            ghost.last_seen >= tick - GHOST_TICKS &&
+                (ghost.last_seen == tick ||
+                     !my_blobs.iter().any(|me| {
+                        me.can_see_safe(&ghost.player, my_blobs.len(), GHOST_VISIBILITY_FACTOR)
+                    }))
         });
         self.state.enemies = self.ghost_enemies
             .values()
@@ -470,6 +476,22 @@ impl MyStrategy {
                     opacity: 0.5,
                 });
             }
+        }
+        for me in self.state.my_blobs.iter() {
+            command.add_debug_circle(DebugCircle {
+                center: me.point() + Point::from_polar(config().vis_shift, me.angle()),
+                radius: me.vision_radius(self.state.my_blobs.len()) * GHOST_VISIBILITY_FACTOR,
+                color: String::from("blue"),
+                opacity: 0.05,
+            });
+        }
+        for ghost in self.ghost_enemies.values() {
+            command.add_debug_circle(DebugCircle {
+                center: ghost.player.point(),
+                radius: ghost.player.r(),
+                color: String::from("blue"),
+                opacity: 0.5,
+            });
         }
 
         command.add_debug_message(format!("skips:\t{}", self.skips));
