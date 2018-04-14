@@ -23,11 +23,17 @@ def main():
                 stats.count += 1
                 stats.places[place - 1] += 1
     print(num_games, 'games')
-    print('{:<22} {:>4} {:>4} {:>4} {:>4}'.format(
+    print('{:<22} {:>6} {:>6} {:>6} {:>6}'.format(
         'solution', '1', '2', '3', '4'))
     for solution, stats in all_stats.items():
-        print('{:<22} {:>4.1f} {:>4.1f} {:>4.1f} {:>4.1f}'.format(
-            solution, *[p / stats.count for p in stats.places]))
+        print('{:<22} {:>6} {:>6} {:>6} {:>6}'.format(
+            solution, *[p for p in stats.places]))
+    print()
+    print('{:<22} {:>6} {:>6} {:>6} {:>6} {:>6}'.format(
+        'solution', '1', '2', '3', '4', 'count'))
+    for solution, stats in all_stats.items():
+        print('{:<22} {:>6.2f} {:>6.2f} {:>6.2f} {:>6.2f} {:>6}'.format(
+            solution, *[p / stats.count for p in stats.places], stats.count))
 
 
 if __name__ == '__main__':
