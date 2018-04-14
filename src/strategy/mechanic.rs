@@ -22,19 +22,6 @@ pub struct State {
     pub eaten_viruses: HashSet<VirusId>,
 }
 
-impl State {
-    pub fn new(tick: i64, my_blobs: Vec<Player>, enemies: Vec<Player>) -> State {
-        State {
-            tick,
-            my_blobs,
-            enemies,
-            eaten_food: Default::default(),
-            eaten_ejections: Default::default(),
-            eaten_viruses: Default::default(),
-        }
-    }
-}
-
 impl Mechanic {
     pub fn new(state: &State) -> Mechanic {
         let my_player_id = state.my_blobs.first().map_or(

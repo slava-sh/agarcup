@@ -1,5 +1,5 @@
 pub use self::my_strategy::MyStrategy;
-pub use self::strategy::Strategy;
+pub use self::strategy::{Strategy, Tick};
 #[cfg(feature = "debug")]
 pub use self::timing_wrapper::TimingWrapper;
 pub use command::*;

@@ -16,6 +16,8 @@ const MIN_SKIPS: i64 = 5;
 const SIMULATION_DEPTH: i64 = 7;
 const COMMAND_DISTANCE_FACTOR: f64 = 2.0;
 
+const GHOST_TICKS: i64 = 50;
+
 const SPEED_REWARD_FACTOR: f64 = 0.01;
 const DANGER_PENALTY_FACTOR: f64 = -100.0;
 const SAFETY_MARGIN_FACTOR: f64 = 2.5;
@@ -35,7 +37,7 @@ pub struct MyStrategy {
     root: SharedNode,
     next_root: SharedNode,
     commands: VecDeque<Command>,
-    enemy_pos: HashMap<PlayerBlobId, Point>,
+    ghost_enemies: HashMap<PlayerBlobId, Ghost>,
     rng: XorShiftRng,
 
     state: State,
@@ -62,13 +64,19 @@ struct Node {
 type SharedNode = Rc<RefCell<Node>>;
 type Score = f64;
 
+#[derive(Debug)]
+struct Ghost {
+    player: Player,
+    last_seen: Tick,
+}
+
 impl MyStrategy {
     pub fn new() -> MyStrategy {
         MyStrategy {
             root: Default::default(),
             next_root: Default::default(),
             commands: Default::default(),
-            enemy_pos: Default::default(),
+            ghost_enemies: Default::default(),
             rng: XorShiftRng::from_seed([0x1337_5EED; 4]),
 
             state: Default::default(),
@@ -130,7 +138,7 @@ impl MyStrategy {
 
     fn tick_impl(
         &mut self,
-        tick: i64,
+        tick: Tick,
         my_blobs: Vec<Player>,
         food: Vec<Food>,
         ejections: Vec<Ejection>,
@@ -138,11 +146,15 @@ impl MyStrategy {
         enemies: Vec<Player>,
     ) -> Command {
         self.tick_start_time = Instant::now();
-        self.state = State::new(tick, my_blobs, enemies);
         self.food = food;
         self.ejections = ejections;
         self.viruses = viruses;
-        self.infer_speeds();
+        self.state.tick = tick;
+        self.state.my_blobs = my_blobs;
+        self.state.eaten_food = Default::default();
+        self.state.eaten_ejections = Default::default();
+        self.state.eaten_viruses = Default::default();
+        self.update_enemies(enemies);
         if self.commands.is_empty() {
             self.update_skips();
             self.add_commands();
@@ -287,20 +299,31 @@ impl MyStrategy {
         mechanic.state
     }
 
-    fn infer_speeds(&mut self) {
-        for enemy in self.state.enemies.iter_mut() {
-            let v = if let Some(last_pos) = self.enemy_pos.get(&enemy.id()) {
-                enemy.point() - *last_pos
-            } else {
-                Point::zero()
-            };
-            enemy.set_v(v);
-            enemy.update_is_fast();
+    fn update_enemies(&mut self, enemies: Vec<Player>) {
+        let tick = self.state.tick;
+        for mut enemy in enemies {
+            if let Some(ghost) = self.ghost_enemies.get(&enemy.id()) {
+                if ghost.last_seen == tick - 1 {
+                    let v = enemy.point() - ghost.player.point();
+                    enemy.set_v(v);
+                    enemy.update_is_fast();
+                }
+            }
+            self.ghost_enemies.insert(
+                enemy.id(),
+                Ghost {
+                    player: enemy,
+                    last_seen: tick,
+                },
+            );
         }
-        self.enemy_pos.clear();
-        for enemy in self.state.enemies.iter() {
-            self.enemy_pos.insert(enemy.id(), enemy.point());
-        }
+        self.ghost_enemies.retain(|_, ghost| {
+            ghost.last_seen >= tick - GHOST_TICKS
+        });
+        self.state.enemies = self.ghost_enemies
+            .values()
+            .map(|enemy| enemy.player.clone())
+            .collect();
     }
 
     #[cfg(feature = "debug")]
@@ -356,15 +379,14 @@ impl MyStrategy {
             self.state.my_blobs.len(),
         );
 
-        for enemy in self.state.enemies.iter() {
+        for enemy in self.next_root.borrow().state.enemies.iter() {
             command.add_debug_circle(DebugCircle {
-                center: enemy.point() + enemy.v() * self.skips as f64,
+                center: enemy.point(),
                 radius: enemy.r(),
                 color: String::from("red"),
                 opacity: 0.1,
             });
         }
-
         for me in self.next_root.borrow().state.my_blobs.iter() {
             command.add_debug_circle(DebugCircle {
                 center: me.point(),
@@ -474,7 +496,7 @@ impl MyStrategy {
 impl Strategy for MyStrategy {
     fn tick(
         &mut self,
-        tick: i64,
+        tick: Tick,
         my_blobs: Vec<Player>,
         food: Vec<Food>,
         ejections: Vec<Ejection>,
