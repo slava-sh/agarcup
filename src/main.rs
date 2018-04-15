@@ -5,8 +5,6 @@ extern crate log;
 extern crate fern;
 #[cfg(feature = "debug")]
 extern crate chrono;
-#[cfg(feature = "debug")]
-extern crate time;
 
 extern crate my_strategy;
 

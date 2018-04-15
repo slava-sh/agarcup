@@ -2,6 +2,7 @@ use std::io;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
+use serde::de::DeserializeOwned;
 use serde_json;
 
 use strategy::*;
@@ -36,7 +37,7 @@ fn get_strategy() -> TimingWrapper<MyStrategy> {
 }
 
 fn read_config() -> Config {
-    Config::from_json(read_json().expect("EOF"))
+    read_json().expect("EOF while reading config")
 }
 
 #[derive(Default)]
@@ -49,7 +50,7 @@ struct Entities {
 }
 
 fn read_tick_data() -> Option<Entities> {
-    let data: TickData = serde_json::from_value(read_json()?).expect("TickData parsing failed");
+    let data: TickData = read_json()?;
     let mut entities = Entities::default();
     for mine in data.mine {
         let mut me = Player {
@@ -146,13 +147,19 @@ struct Objects {
     r: Option<f64>,
 }
 
-fn read_json() -> Option<serde_json::Value> {
-    serde_json::from_str(&read_line()?).expect("JSON parsing failed")
+fn read_json<T>() -> Option<T>
+where
+    T: DeserializeOwned,
+{
+    let value = serde_json::from_str(&read_line()?).expect("failed to parse JSON");
+    serde_json::from_value(value).expect("failed to deserialize")
 }
 
 fn read_line() -> Option<String> {
     let mut line = String::new();
-    let n = io::stdin().read_line(&mut line).expect("read line failed");
+    let n = io::stdin().read_line(&mut line).expect(
+        "failed to read line",
+    );
     if n == 0 { None } else { Some(line) }
 }
 
@@ -194,7 +201,7 @@ fn print_command(command: Command) {
     };
     println!(
         "{}",
-        serde_json::to_string(&response).expect("response serialization failed")
+        serde_json::to_string(&response).expect("failed to serialize response")
     );
 }
 
