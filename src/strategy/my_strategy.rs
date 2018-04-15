@@ -499,6 +499,8 @@ impl MyStrategy {
         command.add_debug_message(format!("paths:\t{} / {}", self.paths_seen, self.num_paths));
         command.add_debug_message(format!("tree:\t{}", tree_size));
         command.add_debug_message(format!("enemies:\t{}", self.state.enemies.len()));
+        command.add_debug_message(format!("food:\t{}", self.food.len()));
+        command.add_debug_message(format!("viruses:\t{}", self.viruses.len()));
         command.add_debug_message(format!(
             "goal:\t{:.4}",
             AVG_TICK_TIME_SECS * self.skips as f64

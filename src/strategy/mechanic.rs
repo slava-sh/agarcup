@@ -84,18 +84,11 @@ impl Mechanic {
     }
 
     fn predict_enemy_target(&self, enemy: &Player) -> Option<Point> {
-        self.players
-            .iter()
-            .filter(|&me| {
-                me.player_id() == self.my_player_id && me.m() < enemy.m() && enemy.can_see(me, 1)
-            })
-            .min_by(|a, b| {
-                a.point()
-                    .qdist(enemy.point())
-                    .partial_cmp(&b.point().qdist(enemy.point()))
-                    .expect("incomparable distances")
-            })
-            .map(|me| me.point())
+        nearest_player(
+            enemy,
+            |me| me.player_id() == self.my_player_id && me.m() < enemy.m() && enemy.can_see(me, 1),
+            &self.players,
+        ).map(|i| self.players[i].point())
     }
 
     fn move_moveables(&mut self) {
@@ -446,6 +439,7 @@ where
     P: Fn(&Player) -> bool,
     U: IntoIterator<Item = &'a Player>,
 {
+    let target = target.point();
     players
         .into_iter()
         .enumerate()
@@ -453,8 +447,8 @@ where
         .min_by(|&(_, a), &(_, b)| {
             // TODO: Incorporate depth calculation.
             a.point()
-                .qdist(target.point())
-                .partial_cmp(&b.point().qdist(target.point()))
+                .qdist(target)
+                .partial_cmp(&b.point().qdist(target))
                 .expect("incomparable distances")
         })
         .map(|(i, _)| i)
