@@ -6,10 +6,10 @@ OUTPUT_DIR="target/submission"
 OUTPUT_FILE="target/submission.rs"
 rm -rf "$OUTPUT_DIR" "$OUTPUT_FILE"
 mkdir -p "$OUTPUT_DIR"
-cp -r src/* "$OUTPUT_DIR"
+cp -r src Cargo.toml "$OUTPUT_DIR"
 
 VERSION="$(git describe --always --dirty)"
-sed -i '' -- 's/"DEV"/"'"$VERSION"'"/g' "$OUTPUT_DIR/version.rs"
+sed -i '' -- 's/"DEV"/"'"$VERSION"'"/g' "$OUTPUT_DIR/src/version.rs"
 
-cargo run -p expand-mods -- "$OUTPUT_DIR/main.rs" | rustfmt >"$OUTPUT_FILE"
+cargo run -p bundler -- "$OUTPUT_DIR" | rustfmt >"$OUTPUT_FILE"
 echo "Created $OUTPUT_FILE"
