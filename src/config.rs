@@ -4,6 +4,8 @@ use std::sync::{Mutex, MutexGuard};
 use lazy_static;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(default)]
 pub struct Config {
     pub burst_angle_spectrum: f64,
     pub burst_bonus: f64,

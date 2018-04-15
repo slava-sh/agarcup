@@ -2,18 +2,19 @@
 
 cd "$(dirname "$0")/.."
 
+PROJECT=my_strategy
+STRATEGY="target/release/$PROJECT"
+STACKS="/tmp/$PROJECT.stacks"
 GAME=/tmp/game.txt
-STACKS=target/out.stacks
 GRAPH=target/graph.svg
-STRATEGY=target/latest
 
 if [[ "$STRATEGY" -nt "$GAME" ]]; then
-  echo "run the following command to create $GAME"
-  echo "./script/build --release && ./script/local-runner 2>'$GAME'"
+  echo "run the following command to create a new $GAME:"
+  echo "  ./script/build --release && ./script/local-runner 2>'$GAME'"
   exit 1
 fi
 
 rm -f "$STACKS"
-sudo dtrace -c "./$STRATEGY" -n 'profile-997 /execname == "strategy"/ { @[ustack(100)] = count(); }' -o "$STACKS" <"$GAME" >/dev/null
+sudo dtrace -c "./$STRATEGY" -n 'profile-997 /execname == "'"$PROJECT"'"/ { @[ustack(100)] = count(); }' -o "$STACKS" <"$GAME" >/dev/null
 ~/Code/FlameGraph/stackcollapse.pl "$STACKS" | ~/Code/FlameGraph/flamegraph.pl >"$GRAPH"
 open -a 'Google Chrome' "$GRAPH"
