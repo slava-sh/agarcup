@@ -53,9 +53,9 @@ impl Player {
         if !(self.m() > food.m() * config().mass_eat_factor) {
             return false;
         }
-        let dist = self.point().dist(food.point());
-        let min_r = dist - food.r() + food.r() * 2.0 * config().diam_eat_factor;
-        min_r < self.r()
+        let qdist = self.point().qdist(food.point());
+        let max_dist = self.r() + food.r() - food.r() * 2.0 * config().diam_eat_factor;
+        max_dist > 0.0 && qdist < max_dist.powi(2)
     }
 
     pub fn can_see<Other: Circle>(&self, other: &Other, fragment_count: usize) -> bool {
