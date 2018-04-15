@@ -360,7 +360,7 @@ fn split_fragments(fragments: &mut [&mut Player]) -> Vec<Player> {
 
 fn split_now(player: &mut Player, max_fragment_id: &mut FragmentId) -> Player {
     let new_m = player.m() / 2.0;
-    let new_r = mass_to_radius(new_m);
+    let new_r = Player::mass_to_radius(new_m);
 
     let new_blob = Player {
         id_: PlayerBlobId {
@@ -387,7 +387,7 @@ fn split_now(player: &mut Player, max_fragment_id: &mut FragmentId) -> Player {
 fn shrink_now(player: &mut Player) {
     let new_m = player.m() - (player.m() - config().min_shrink_mass) * config().shrink_factor;
     player.set_m(new_m);
-    player.set_r(mass_to_radius(new_m));
+    player.set_r(Player::mass_to_radius(new_m));
 }
 
 fn eat_food<F: Blob>(food: &[F], eaten: &mut HashSet<F::Id>, players: &mut [Player]) {
@@ -455,7 +455,7 @@ where
 }
 
 fn update_by_mass(player: &mut Player) {
-    let r = mass_to_radius(player.m());
+    let r = Player::mass_to_radius(player.m());
     player.set_r(r);
 
     if !player.is_fast() {
@@ -508,7 +508,7 @@ fn burst_now(
         .min(Player::rest_fragment_count(fragment_count));
 
     let new_m = player.m() / (new_fragment_count + 1) as Mass;
-    let new_r = mass_to_radius(new_m);
+    let new_r = Player::mass_to_radius(new_m);
 
     let new_blobs = (0..new_fragment_count)
         .map(|i| {
@@ -543,8 +543,4 @@ fn burst_now(
 
     *max_fragment_id = player.fragment_id();
     new_blobs
-}
-
-fn mass_to_radius(mass: Mass) -> f64 {
-    config().radius_factor * mass.sqrt()
 }

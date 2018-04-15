@@ -5,10 +5,10 @@ use std::str::FromStr;
 use serde_json;
 
 use strategy::*;
-use config::{Config, init_config};
+use config::Config;
 
 pub fn run() {
-    init_config(read_config());
+    read_config().init_singleton();
     let mut strategy = get_strategy();
     let mut tick = 0;
     while let Some(data) = read_tick_data() {

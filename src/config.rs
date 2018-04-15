@@ -15,9 +15,11 @@ lazy_static! {
     };
 }
 
-pub fn init_config(config: Config) {
-    *lock_initializer() = Some(config);
-    lazy_static::initialize(&SINGLETON);
+impl Config {
+    pub fn init_singleton(self) {
+        *lock_initializer() = Some(self);
+        lazy_static::initialize(&SINGLETON);
+    }
 }
 
 fn lock_initializer<'mutex>() -> MutexGuard<'mutex, Option<Config>> {

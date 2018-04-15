@@ -173,4 +173,8 @@ impl Player {
     pub fn rest_fragment_count(existing_fragment_count: i64) -> i64 {
         config().max_frags_cnt - existing_fragment_count
     }
+
+    pub fn mass_to_radius(mass: Mass) -> f64 {
+        config().radius_factor * mass.sqrt()
+    }
 }

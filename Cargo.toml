@@ -1,5 +1,5 @@
 [package]
-name = "strategy"
+name = "my_strategy"
 version = "0.1.0"
 authors = ["Slava Shklyaev <slava@slava.sh>"]
 
@@ -17,6 +17,13 @@ chrono = { version = "0.4.1", optional = true }
 fern = { version = "0.5.5", optional = true }
 log = { version = "0.4.1", optional = true }
 time = { version = "0.1.39", optional = true }
+
+[dev-dependencies]
+criterion = "0.2.3"
+
+[[bench]]
+name = "can_eat_blob"
+harness = false
 
 [workspace]
 members = [

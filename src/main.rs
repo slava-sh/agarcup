@@ -1,12 +1,3 @@
-#[macro_use]
-extern crate lazy_static;
-extern crate rand;
-extern crate serde;
-#[macro_use]
-extern crate serde_json;
-#[macro_use]
-extern crate serde_derive;
-
 #[cfg(feature = "debug")]
 #[macro_use]
 extern crate log;
@@ -17,16 +8,11 @@ extern crate chrono;
 #[cfg(feature = "debug")]
 extern crate time;
 
-mod command;
-mod config;
-mod interactor;
-mod models;
-mod strategy;
-mod version;
+extern crate my_strategy;
 
 fn main() {
     #[cfg(feature = "debug")] init_logging();
-    interactor::run();
+    my_strategy::interactor::run();
 }
 
 #[cfg(feature = "debug")]
