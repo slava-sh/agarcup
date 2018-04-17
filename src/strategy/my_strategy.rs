@@ -21,8 +21,8 @@ const GHOST_VISIBILITY_FACTOR: f64 = 0.95;
 const GHOST_TTF_FACTOR: f64 = 0.5;
 
 const SPEED_REWARD_FACTOR: f64 = 0.01;
-const DANGER_PENALTY_FACTOR: f64 = -100.0;
-const SAFETY_MARGIN_FACTOR: f64 = 6.0;
+const DANGER_PENALTY_FACTOR: f64 = -300.0;
+const SAFETY_MARGIN_FACTOR: f64 = 7.0;
 const SAFETY_MARGIN_PENALTY: f64 = -5.0;
 const SMALL_BLOB_PENALTY: f64 = -10.0;
 const MAX_SMALL_BLOB_MASS: f64 = 85.0;
@@ -117,7 +117,7 @@ impl MyStrategy {
         }
 
         for enemy in state.enemies.iter() {
-            if enemy.m() > me.m() && enemy.can_see(me, 1) {
+            if enemy.m() > me.m() {
                 let mut speed = enemy.max_speed();
                 if enemy.m() > me.m() * 2.0 {
                     speed = speed.max(config().split_start_speed);
