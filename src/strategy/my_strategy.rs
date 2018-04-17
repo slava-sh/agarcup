@@ -22,8 +22,8 @@ const GHOST_TTF_FACTOR: f64 = 0.5;
 
 const SPEED_REWARD_FACTOR: f64 = 0.01;
 const DANGER_PENALTY_FACTOR: f64 = -100.0;
-const SAFETY_MARGIN_FACTOR: f64 = 2.5;
-const SAFETY_MARGIN_PENALTY: f64 = -3.0;
+const SAFETY_MARGIN_FACTOR: f64 = 6.0;
+const SAFETY_MARGIN_PENALTY: f64 = -5.0;
 const SMALL_BLOB_PENALTY: f64 = -10.0;
 const MAX_SMALL_BLOB_MASS: f64 = 85.0;
 
@@ -40,6 +40,7 @@ pub struct MyStrategy {
     next_root: SharedNode,
     commands: VecDeque<Command>,
     ghost_enemies: HashMap<PlayerBlobId, Ghost>,
+    num_enemies: i64,
     rng: XorShiftRng,
 
     state: State,
@@ -79,6 +80,7 @@ impl MyStrategy {
             next_root: Default::default(),
             commands: Default::default(),
             ghost_enemies: Default::default(),
+            num_enemies: Default::default(),
             rng: XorShiftRng::from_seed([0x1337_5EED; 4]),
 
             state: Default::default(),
@@ -156,8 +158,13 @@ impl MyStrategy {
         self.state.eaten_food = Default::default();
         self.state.eaten_ejections = Default::default();
         self.state.eaten_viruses = Default::default();
+        if self.num_enemies != enemies.len() {
+            self.num_enemies = enemies.len() as i64;
+            self.commands.clear();
+        }
         self.update_enemies(enemies);
         if self.commands.is_empty() {
+            self.num_enemies = enemies.len();
             self.update_skips();
             self.add_commands();
         }
