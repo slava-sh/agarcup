@@ -121,7 +121,7 @@ impl MyStrategy {
                     speed = speed.max(config().split_start_speed);
                 }
                 let dist = me.point().dist(enemy.point());
-                score += DANGER_PENALTY_FACTOR / (dist / speed).max(1.0);
+                score += DANGER_PENALTY_FACTOR / (dist / speed).max(1.0).min(3.0);
             }
         }
 
