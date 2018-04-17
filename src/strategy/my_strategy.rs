@@ -11,7 +11,7 @@ use strategy::*;
 use strategy::mechanic::{Mechanic, State};
 use version::VERSION;
 
-const AVG_TICK_TIME_SECS: f64 = 150.0 / 7500.0;
+const AVG_TICK_TIME_SECS: f64 = 600.0 / 25000.0;
 const MIN_SKIPS: i64 = 5;
 const SIMULATION_DEPTH: i64 = 7;
 const COMMAND_DISTANCE_FACTOR: f64 = 2.0;
