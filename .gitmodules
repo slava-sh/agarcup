@@ -1,3 +1,6 @@
 [submodule "bundler"]
 	path = bundler
 	url = git@github.com:slava-sh/rust-bundler.git
+[submodule "vendor/miniaicups"]
+	path = vendor/miniaicups
+	url = git@github.com:slava-sh/agarcup-vendor.git
